@@ -49,6 +49,8 @@ class FaultGeneratorTests(unittest.TestCase):
         self.assertIn("mo_blockintegral(11)", text)
         self.assertIn("mo_blockintegral(13)", text)
         self.assertIn("mo_blockintegral(14)", text)
+        self.assertIn("mo_getcircuitproperties", text)
+        self.assertIn("circuits_bonded.csv", text)
 
     def test_unbalanced_fault_input_rejected(self):
         j = self.fault_job()
@@ -70,6 +72,7 @@ class FaultGeneratorTests(unittest.TestCase):
         code, text = self.generate(j)
         self.assertEqual(code, 0, text)
         self.assertIn('mi_addcircprop("isolated_shell_3",0,0)', text)
+        self.assertIn("circuits_isolated.csv", text)
 
 if __name__ == "__main__":
     unittest.main()
