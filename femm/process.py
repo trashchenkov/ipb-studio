@@ -96,12 +96,12 @@ report=f'''# FEMM calculation results
 
 Mode: {mode}
 Frequency: {job["electrical"]["frequency_hz"]} Hz
-Phase current: {expected} A RMS
+Maximum specified phase current: {expected} A RMS\nPer-phase currents: {[round(abs(v),6) for v in expected_by_phase]} A RMS
 Mesh: {job["solver"]["mesh_mm"]} mm
 Outer boundary radius: {job["solver"]["outer_radius_mm"]} mm
 Total Joule losses: {total:.4f} W/m
 
-Output JSON: ipb_result.json (can be imported into IPB Studio).
+Output JSON: ipb_result.json (can be imported into IPB Studio).\nFEMM Lorentz force regions: {len(forces)} (mean and complex 2f, N/m).
 Note: Results are from an idealized 2D harmonic model; no validation of actual connectors or transient fault response.
 '''
 (base/'RESULTS.md').write_text(report,encoding='utf-8')
