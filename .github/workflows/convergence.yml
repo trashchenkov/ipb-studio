@@ -2,10 +2,6 @@ name: IPB force convergence - one Windows experiment
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'femm/run_convergence_once.json'
 
 permissions:
   contents: read
