@@ -1,0 +1,94 @@
+name: IPB force convergence - one Windows experiment
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'femm/run_convergence_once.json'
+
+permissions:
+  contents: read
+
+jobs:
+  convergence:
+    runs-on: windows-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare six controlled FEMM cases
+        shell: pwsh
+        run: |
+          python femm/convergence.py prepare --root convergence_out
+      - name: Install official FEMM 4.2
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $url = "https://www.femm.info/doku/lib/exe/fetch.php?media=upload:files:femm42bin_x64_21apr2019.exe"
+          $installer = Join-Path $env:RUNNER_TEMP "femm42_setup.exe"
+          Invoke-WebRequest -Uri $url -OutFile $installer -MaximumRedirection 10
+          $expected = "17384E8990B6305EC8FFEF1F75B6EF091A266B6E49B30C151CD1DACA2E952043"
+          $actual = (Get-FileHash -Path $installer -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { throw "FEMM installer SHA256 mismatch: $actual" }
+          $proc = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "FEMM installer exit $($proc.ExitCode)" }
+          $femm = @(
+            "C:\femm42\bin\femm.exe",
+            "C:\Program Files\femm42\bin\femm.exe",
+            "C:\Program Files (x86)\femm42\bin\femm.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $femm) { throw "FEMM installed but femm.exe not found" }
+          "FEMM_EXE=$femm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Using FEMM: $femm"
+
+
+      - name: Run all six FEMM cases on one Windows runner
+        shell: pwsh
+        timeout-minutes: 85
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path (Get-Location).Path "convergence_out"
+          $cases = Get-ChildItem -Path $root -Directory | Sort-Object Name
+          if ($cases.Count -ne 6) { throw "Expected 6 cases, got $($cases.Count)" }
+          foreach ($case in $cases) {
+            $job = Get-Content (Join-Path $case.FullName 'job.json') -Raw | ConvertFrom-Json
+            $lua = "case_$($job.electrical.mode).lua"
+            Write-Host "Calculating $($case.Name) with FEMM..."
+            $p = Start-Process -FilePath $env:FEMM_EXE -ArgumentList "-lua-script=$lua","-windowhide" -WorkingDirectory $case.FullName -PassThru
+            $deadline = (Get-Date).AddMinutes(12)
+            while (-not $p.HasExited -and (Get-Date) -lt $deadline) {
+              Start-Sleep -Seconds 5
+              $p.Refresh()
+            }
+            if (-not $p.HasExited) {
+              Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+              throw "FEMM timeout for $($case.Name)"
+            }
+            if ($p.ExitCode -ne 0) { throw "FEMM returned $($p.ExitCode) for $($case.Name)" }
+            foreach ($name in @("results_$($job.electrical.mode).csv","forces_$($job.electrical.mode).csv","field_$($job.electrical.mode).csv")) {
+              if (-not (Test-Path (Join-Path $case.FullName $name))) { throw "$($case.Name) missing $name" }
+            }
+          }
+      - name: Check forces and publish convergence report
+        shell: pwsh
+        run: |
+          python femm/convergence.py summarize --root convergence_out
+          Get-Content convergence_out/REPORT.md
+      - name: Attach reproducible numerical results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipb-force-convergence
+          path: |
+            convergence_out/REPORT.md
+            convergence_out/comparison.json
+            convergence_out/summary.csv
+            convergence_out/**/job.json
+            convergence_out/**/case_*.fem
+            convergence_out/**/results_*.csv
+            convergence_out/**/forces_*.csv
+            convergence_out/**/field_*.csv
+            convergence_out/**/ipb_result.json
+          if-no-files-found: warn
+          retention-days: 30
