@@ -35,9 +35,9 @@
 <li><strong>Дождитесь зелёной отметки</strong> у запуска «Calculate IPB using FEMM (Windows)». Затем автоматически выполняются «Publish validated FEMM results» и публикация GitHub Pages.</li>
 <li><strong>Вернитесь сюда и нажмите «Обновить результаты»</strong>. Новый расчёт появится на вкладках «Результаты» и «Сравнение». Обновление возможно только после завершения всей цепочки.</li>
 </ol>
-<div class="controls"><button class="primary" id="copyJobGitHub">1. Скопировать JSON</button><a href="https://github.com/trashchenkov/ipb-studio/actions/workflows/femm.yml" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 15px;color:#d1eef7;border:1px solid #446177;border-radius:8px;text-decoration:none;background:#223a50">2. Открыть запуск в GitHub ↗</a><button id="refreshGitHubResults">3. Обновить результаты</button></div>
+<div class="controls"><button class="primary" id="copyJobGitHub">1. Скопировать JSON</button><a href="https://github.com/trashchenkov/ipb-studio/actions/workflows/femm.yml" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 15px;color:#d1eef7;border:1px solid #446177;border-radius:8px;text-decoration:none;background:#223a50">2. Открыть запуск в GitHub ↗</a><button id="refreshGitHubResults">3. Проверить состояние и результаты</button></div>
 <label class="field" for="githubJobJson">Полный JSON текущего задания — можно выделить и скопировать вручную<textarea id="githubJobJson" readonly spellcheck="false" style="display:block;background:#1c3248;color:#edf8ff;border:1px solid #48647a;border-radius:7px;padding:10px;margin-top:6px;width:100%;min-height:140px;resize:vertical;font:12px/1.45 monospace"></textarea></label>
-<div class="statusline" id="githubRunHelp" aria-live="polite">После копирования откройте GitHub Actions. Сайт не отправляет задание самостоятельно.</div>
+<div class="statusline" id="githubRunHelp" aria-live="polite">После копирования откройте GitHub Actions. Сайт не отправляет задание самостоятельно.</div><div class="card" style="margin-top:14px;background:#172d40;border-color:#3f6277"><h3>Состояние расчёта в GitHub</h3><p class="note">Это общедоступные запуски репозитория, не обязательно ваши. Если выполняются несколько заданий, выберите нужный запуск по номеру. Точный состав исходных данных подтверждается только после публикации результата.</p><label class="field">Отслеживаемый запуск GitHub Actions<select id="githubRunSelect"><option value="">Последние запуски ещё не загружены</option></select></label><div id="githubRunState" class="statusline" role="status" aria-live="polite">Нажмите «Проверить состояние», чтобы получить сведения о расчётах.</div><div id="githubRunLink" class="note"></div></div>
 <p class="note">Расчёты выполняются на GitHub-hosted Windows runner с FEMM 4.2. Упрощённая двумерная гармоническая постановка не рассчитывает переходные процессы короткого замыкания, нагрев и механические деформации. Публично опубликованные результаты и параметры доступны всем посетителям сайта.</p>
 </div><div class="grid2"><div class="card"><h3>Условия задачи</h3>
 <label class="field">Схема оболочек<select id="runShellMode"><option value="bonded">Соединены на концах (bonded)</option><option value="isolated">Нулевой продольный ток каждой оболочки (isolated)</option></select></label>
@@ -252,6 +252,9 @@ $('importProject').onchange=async e=>{const f=e.target.files[0];if(!f)return;try
 $('exportJob').onclick=()=>{const j=job();if(validate(j).length)return;download('ipb_femm_job.json',JSON.stringify(j,null,2));};
 
 $('copyJobGitHub').onclick=async()=>{
+  trackedRunId=null;lastRuns=[];lastPublished=[];
+  try{localStorage.removeItem('ipb_studio_tracked_run');}catch(e){}
+  $('githubRunState').textContent='Задание подготовлено. После запуска в GitHub нажмите «Проверить состояние и результаты» и выберите новый запуск из списка.';
   const j=job();if(validate(j).length){$('githubRunHelp').textContent='Исправьте ошибки постановки перед запуском.';return;}
   const box=$('githubJobJson');box.value=JSON.stringify(j,null,2);
   try{
@@ -264,7 +267,8 @@ $('copyJobGitHub').onclick=async()=>{
     $('githubRunHelp').textContent=ok?'JSON скопирован. Откройте GitHub Actions и вставьте его в job_json.':'Выделен текст задания. Скопируйте его Ctrl+C (на macOS — ⌘C), затем откройте GitHub Actions.';
   }
 };
-$('refreshGitHubResults').onclick=async()=>{const b=$('refreshGitHubResults');b.disabled=true;try{await loadPublished();show('results');}finally{b.disabled=false;}};
+$('refreshGitHubResults').onclick=checkRunAndResults;
+$('githubRunSelect').onchange=()=>{trackedRunId=Number($('githubRunSelect').value)||null;try{if(trackedRunId)localStorage.setItem('ipb_studio_tracked_run',String(trackedRunId));else localStorage.removeItem('ipb_studio_tracked_run');}catch(e){}renderTrackedRun(lastRuns,lastPublished);};
 
 $('exportLua').onclick=()=>{const j=job();if(validate(j).length)return;download('case_'+j.electrical.mode+'.lua',luaFromJob(j),'text/plain');};
 $('importResult').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let x=JSON.parse(await f.text());let rec=addRecord(x,f.name.replace(/\.json$/i,''));$('importStatus').innerHTML=`<span class="success">Результат принят:</span> ${rec.label}. ${cfgKey(rec.job)===cfgKey(job())?'Совпадает с текущим заданием.':'Архивный вариант, условия отличаются от текущего задания.'}`;}catch(err){$('importStatus').innerHTML='<span class="error">Импорт отклонён: '+String(err.message).replaceAll('<','&lt;')+'</span>';}e.target.value='';};
@@ -277,6 +281,75 @@ for(const id of [...DIM_IDS,'runShellMode','freq','currentA','rho','alphaT','tCo
 $('mReset').addEventListener('click',()=>setTimeout(workflowUpdated,1));
 loadSaved();refreshSelects();updateDrafts();workflowUpdated();show('design');
 
+// GitHub status is public, read-only; no credentials are stored in IPB Studio.
+const FEMM_WORKFLOW_API='https://api.github.com/repos/trashchenkov/ipb-studio/actions/workflows/femm.yml/runs?event=workflow_dispatch&per_page=15';
+let lastRuns=[],lastPublished=[],trackedRunId=null;
+try{const n=Number(localStorage.getItem('ipb_studio_tracked_run'));if(Number.isSafeInteger(n)&&n>0)trackedRunId=n;}catch(e){}
+function runDescription(r){
+  const n='#'+r.run_number+' · '+new Date(r.created_at).toLocaleString('ru-RU');
+  const state=r.status==='completed'?(r.conclusion==='success'?'успешен':r.conclusion==='failure'?'ошибка':r.conclusion==='cancelled'?'отменён':r.conclusion||'завершён'):'выполняется';
+  return n+' · '+state;
+}
+function renderTrackedRun(runs,published,apiError=''){
+  const select=$('githubRunSelect'), status=$('githubRunState'), link=$('githubRunLink');
+  const previous=trackedRunId;
+  select.replaceChildren();
+  const empty=new Option('Выберите запуск из списка','');select.add(empty);
+  for(const run of runs)select.add(new Option(runDescription(run),String(run.id)));
+  if(previous && !runs.some(r=>r.id===previous))select.add(new Option('#'+previous+' · вне последних 15 запусков',String(previous)));
+  select.value=previous?String(previous):'';
+  link.replaceChildren();
+  const addLink=(url,title)=>{
+    const a=document.createElement('a');a.href=url;a.textContent=title;a.target='_blank';a.rel='noopener noreferrer';a.style.color='#c3eaf9';link.append(a);
+  };
+  if(apiError){
+    status.textContent='Не удалось проверить GitHub Actions: '+apiError+'. Опубликованные результаты по-прежнему доступны.';
+    addLink('https://github.com/trashchenkov/ipb-studio/actions/workflows/femm.yml','Открыть GitHub Actions');
+    return;
+  }
+  if(!runs.length){status.textContent='Запуски FEMM не найдены. Возможно, расчёт ещё не отправлен в GitHub.';return;}
+  const run=runs.find(r=>r.id===previous);
+  if(!previous){
+    status.textContent='Найдено запусков: '+runs.length+'. Выберите нужный в списке. Последний запуск нельзя автоматически считать вашим.';
+    addLink('https://github.com/trashchenkov/ipb-studio/actions/workflows/femm.yml','Все запуски FEMM');
+    return;
+  }
+  if(!run){
+    status.textContent='Выбранный запуск не входит в последние 15. Откройте его страницу в GitHub или выберите другой.';
+    addLink('https://github.com/trashchenkov/ipb-studio/actions/runs/'+previous,'Открыть выбранный запуск');
+    return;
+  }
+  addLink(run.html_url,'Журнал расчёта #'+run.run_number);
+  if(run.status!=='completed'){status.textContent=run.status==='queued'||run.status==='waiting'?'Задание принято GitHub и ожидает запуска. Результата пока нет.':'FEMM ещё работает. Старые результаты не заменяются; повторите проверку позже.';return;}
+  if(run.conclusion!=='success'){status.textContent='Расчёт завершился с состоянием «'+(run.conclusion||'неизвестно')+'». Новый результат не опубликован. Откройте журнал запуска.';return;}
+  const isPublished=published.some(r=>r.run_id===run.id);
+  if(isPublished){
+    const record=records.find(r=>r.id==='github-'+run.id);
+    status.textContent=record?'Расчёт успешно завершён, опубликован и загружен в IPB Studio. Откройте «Результаты».':'Расчёт опубликован, но ещё не загружен в приложение. Повторите проверку или посмотрите сообщение загрузки ниже.';
+  }else status.textContent='FEMM завершён успешно. Ожидается публикация и обновление GitHub Pages. Попробуйте проверить ещё раз позже.';
+}
+async function checkRunAndResults(){
+  const b=$('refreshGitHubResults');b.disabled=true;
+  $('githubRunState').textContent='Проверяем состояние GitHub Actions и опубликованные результаты…';
+  let apiError='';
+  try{
+    const response=await fetch(FEMM_WORKFLOW_API,{cache:'no-store',headers:{Accept:'application/vnd.github+json'}});
+    if(!response.ok){
+      if(response.status===403||response.status===429)throw Error('превышен лимит публичного API GitHub; попробуйте позже');
+      throw Error('HTTP '+response.status);
+    }
+    const body=await response.json();
+    if(!Array.isArray(body.workflow_runs))throw Error('неожиданный формат ответа GitHub');
+    lastRuns=body.workflow_runs.map(r=>({id:r.id,run_number:r.run_number,status:r.status,conclusion:r.conclusion,created_at:r.created_at,html_url:r.html_url}));
+  }catch(e){apiError=e.message||String(e);}
+  try{
+    await loadPublished();
+  }finally{
+    renderTrackedRun(lastRuns,lastPublished,apiError);
+    b.disabled=false;
+  }
+}
+
 async function loadPublished(){
   const status=$('publishedStatus');
   try{
@@ -284,6 +357,7 @@ async function loadPublished(){
     if(!manifestResponse.ok)throw Error('Список результатов: HTTP '+manifestResponse.status);
     const manifest=await manifestResponse.json();
     if(manifest.schema!=='ipb-results-index-v1'||!Array.isArray(manifest.runs))throw Error('Неподдерживаемый формат перечня расчётов');
+    lastPublished=manifest.runs;
     let loaded=0,errors=0;
     for(const entry of manifest.runs.slice(0,12)){
       if(!Number.isSafeInteger(entry.run_id)||!/^\bresults\/run-[0-9]+\.json$/.test(entry.path)||entry.path!=='results/run-'+entry.run_id+'.json'){errors++;continue;}
