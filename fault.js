@@ -203,6 +203,7 @@ function plot(s){
 function run(){
  try{
   const which=$('scScenario').value,params=inputParams(),segments=[];
+  let tapCurrentA=null;
   if(which==='test'){
    const I=number('scTestCurrent')*1000,type=$('scTestType').value;
    if(!(I>0&&I<=500000))throw Error('Недопустимый ток');
@@ -216,14 +217,14 @@ function run(){
    segments.push({label:'Главный токопровод: со стороны GT',...calculate(it,'ABC',computed?dynamicParameters(params,computed.grid):params)});
    if(computed){
     const ph=(x)=>fmt(x*180/Math.PI,1);
-    $('scNetworkOutput').textContent='Эквивалентная цепь: генератор '+fmt(ig/1000,3)+' кА ∠'+ph(computed.generator.phase_rad)+'°; сеть через GT '+fmt(it/1000,3)+' кА ∠'+ph(computed.grid.phase_rad)+'°; в ответвлении / в точке КЗ |I_G + I_GT| = '+fmt(computed.branch.rms_A/1000,3)+' кА RMS. Баланс токов: '+fmt(computed.balance_A,6)+' А. Силы и нагрев в таблице — только оценка для соответствующих участков.';
+    $('scNetworkOutput').textContent='Эквивалентная цепь: генератор '+fmt(ig/1000,3)+' кА ∠'+ph(computed.generator.phase_rad)+'°; сеть через GT '+fmt(it/1000,3)+' кА ∠'+ph(computed.grid.phase_rad)+'°; в точке КЗ |I_G + I_GT| = '+fmt(computed.branch.rms_A/1000,3)+' кА RMS. Баланс токов: '+fmt(computed.balance_A,6)+' А. Силы и нагрев в таблице — только оценка для соответствующих участков.';
    }else $('scNetworkOutput').textContent='Использованы назначенные токи из примера; импедансы и реальные токи источников не определялись.';
-   if(which==='tap') window.__ipbTapCurrentA=computed?computed.branch.rms_A:ig+it;
+   if(which==='tap')tapCurrentA=computed?computed.branch.rms_A:ig+it;
    // UAT tap-off has its own geometry, which is not in the current model: do not calculate its forces/temperatures here.
   }
   const biggest=segments.reduce((a,b)=>Math.max(a,...b.fmax),0);
   const maxRise=segments.reduce((a,b)=>Math.max(a,...b.temps.map(t=>t-b.T0)),0);
-  const largestI=(which==='tap' ? window.__ipbTapCurrentA/1000 : Math.max(...segments.map(s=>s.I))/1000);
+  const largestI=(which==='tap' ? tapCurrentA/1000 : Math.max(...segments.map(s=>s.I))/1000);
   const mode=$('scScenario').value;
   $('scStatus').textContent=(mode==='test'?'Испытание участка':'Повреждение в схеме G—GT')+'. Рассчитано сечений: '+segments.length+'. Временная зависимость тока условная, не воспроизведение динамики генератора. Для рисунка ниже выбран первый участок.';
   $('scMetrics').innerHTML=[['Максимальный заданный ток сечения',fmt(largestI,1)+' кА RMS'],['Макс. погонная сила',fmt(biggest/1000,2)+' кН/м'],['Макс. оценочный нагрев',fmt(maxRise,3)+' К']].map(([a,b])=>'<div class="metric"><small>'+a+'</small><strong>'+b+'</strong></div>').join('');
