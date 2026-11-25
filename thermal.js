@@ -34,9 +34,12 @@ function solve(x){
  if(Tamb<=-K0||Tamb>=200)throw Error('Неверная температура окружающей среды');
  if(x.h_gap_W_m2K<=0||x.h_out_W_m2K<=0)throw Error('Коэффициенты теплоотдачи должны быть положительными');
  const ec=x.eps_conductor,es=x.eps_shell;
- if(!(ec>0&&ec<=1&&es>0&&es<=1))throw Error('Излучательная способность должна быть в (0,1]');
+ // Legacy jobs use one emissivity for both faces. Prefer a separately measured inner-face value.
+ const esi=x.eps_shell_inner===undefined?es:x.eps_shell_inner;
+ if(!(ec>0&&ec<=1&&es>0&&es<=1&&Number.isFinite(esi)&&esi>0&&esi<=1))
+  throw Error('Излучательная способность должна быть в (0,1]');
  const perimeterC=2*Math.PI*rc,perimeterS=2*Math.PI*rs;
- const radiationDenominator=1/ec+(rc/rsi)*(1/es-1);
+ const radiationDenominator=1/ec+(rc/rsi)*(1/esi-1);
  function outward(Ts){
   const ts=Ts+K0,ta=Tamb+K0;
   return perimeterS*(x.h_out_W_m2K*(Ts-Tamb)+es*SB*(ts**4-ta**4));
@@ -55,6 +58,7 @@ function solve(x){
   shell_energy_residual_W_per_m:Ps+q_gap-q_out,
   validity:limit>200?'HIGH_TEMPERATURE_EXTRAPOLATION':'ILLUSTRATIVE',
   model:'2-node steady coaxial convection+radiation; constant losses; independent phases',
+  emissivity_shell_inner_used:esi, emissivity_shell_outer_used:es,
   notes:'The h coefficients, emissivities and FEMM assumed temperatures are not iteratively coupled.'};
 }
 return {solve};
