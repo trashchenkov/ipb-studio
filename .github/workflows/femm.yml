@@ -20,11 +20,6 @@ on:
         required: false
         type: string
         default: ""
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/femm.yml'
-      - 'femm/**'
 
 permissions:
   contents: read
