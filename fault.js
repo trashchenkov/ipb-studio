@@ -30,6 +30,7 @@ root.innerHTML=[
 '</div></div>',
 '<div class="grid3" id="scMetrics"></div>',
 '<div id="scTable"></div>',
+'<div id="scFemmExport" class="card" style="margin-top:12px"></div>',
 '<canvas id="scPlot" width="1100" height="370" style="width:100%;height:auto;display:block;background:#102637;border:1px solid #41617c;border-radius:9px;margin:14px 0"></canvas>',
 '<div class="note" style="line-height:1.7"><strong>Границы достоверности.</strong> Силы: приближение параллельных бесконечных токовых нитей по осям фаз, μ₀/(2π)=2×10⁻⁷ Н/А². Нагрев: адиабатическая модель алюминиевого проводника, dT/dt=i²ρ(T)/(ρₘcₚA²), ρₘ=2700 кг/м³, cₚ=900 Дж/(кг·К). Используются текущие размеры и ρ(T) из параметров IPB Studio. Не учтены распределение токов внутри стенок, токи и силы оболочек, теплообмен, опоры, арматура, длина повреждённого участка, реальное затухание токов генератора и дуга. <strong>Это не проверка стойкости и не расчёт КЗ по IEC 60909.</strong> Для замыканий на землю необходимы нейтраль источника и пути тока через оболочки и заземление.</div>'
 ].join('');
@@ -200,21 +201,85 @@ function plot(s){
  ctx.fillStyle='#cddfea';ctx.textAlign='center';ctx.fillText('Время, с',W/2,H-5);
  for(let k=0;k<=5;k++)ctx.fillText(fmt(s.dur*k/5,2),L+k*w/5,H-22);
 }
+
+function buildFaultFemmJob(scenario,section,amps,phi,ctype){
+ const get=id=>document.getElementById(id);
+ const num=id=>Number(get(id).value);
+ const geom={
+  conductor_outer_diameter_mm:num('mCondD'),conductor_wall_mm:num('mCondT'),
+  shell_outer_diameter_mm:num('mShellD'),shell_wall_mm:num('mShellT'),
+  phase_pitch_mm:num('mPitch'),display_length_m:num('mLength')
+ };
+ const elec={frequency_hz:num('freq'),phase_current_rms_A:amps,
+   mode:get('runShellMode').value};
+ const sequence=ctype==='ABC'?[0,-2*Math.PI/3,2*Math.PI/3]:null;
+ const angles=sequence||[0,0,0];
+ const phasors=[0,1,2].map(k=>{
+   const active=ctype==='ABC'||(ctype==='AB'&&k<2)||(ctype==='BC'&&k>0)||(ctype==='CA'&&k!==1);
+   const sign=ctype==='ABC'?1:(k===({AB:1,BC:2,CA:0}[ctype])?-1:1);
+   const current=active?amps*sign:0;
+   const angle=phi+angles[k];
+   return {re:current*Math.cos(angle),im:current*Math.sin(angle)};
+ });
+ const net=phasors.reduce((acc,v)=>({re:acc.re+v.re,im:acc.im+v.im}),{re:0,im:0});
+ if(Math.hypot(net.re,net.im)>Math.max(amps,1)*.00001)throw Error('Некорректный баланс фазных токов');
+ elec.fault_phasors_rms_A=phasors;
+ const job={schema:'ipb-femm-job-v1',geometry:geom,electrical:elec,
+  materials:{rho20_ohm_m:num('rho'),alpha_per_K:num('alphaT'),conductor_C:num('tCond'),shell_C:num('tShell')},
+  solver:{mesh_mm:num('meshMM'),outer_radius_mm:num('boundMM'),software:'FEMM 4.2'},
+  fault_case:{type:'harmonic_section',scenario,section,source:'IPB Studio fault calculator',
+    note:'One-frequency complex RMS phase currents; no DC offset, no fault thermal transient; force: DC plus complex 2f FEMM Lorentz integrals'}};
+ return job;
+}
+function exportFaultJobs(list,which){
+ const target=$('scFemmExport');target.replaceChildren();
+ const head=document.createElement('h3');head.textContent='Рассчитать это сечение в FEMM';target.append(head);
+ const help=document.createElement('p');help.className='note';
+ help.textContent='Сформируйте отдельное задание для выбранного прямолинейного участка. После копирования откройте workflow FEMM в GitHub Actions, вставьте JSON в поле job_json и запустите его. Результаты появятся на вкладке «Результаты» после публикации. Для GT направление продольного тока противоположно G. FEMM рассчитает гармонические токи оболочек, потери, карту поля и среднюю/2f составляющие сил; не пик силы КЗ и не нагрев во времени.';
+ target.append(help);
+ for(const entry of list){
+   const row=document.createElement('div');row.className='controls';
+   const label=document.createElement('span');label.style.cssText='font-size:12px;color:#cddde8;align-self:center';label.textContent=entry.label;
+   const button=document.createElement('button');button.textContent='Копировать FEMM JSON';
+   const note=document.createElement('span');note.style.cssText='font-size:12px;color:#a8c9da;align-self:center';
+   button.onclick=async()=>{
+      try{
+        const job=buildFaultFemmJob(which,entry.section,entry.current,entry.angle,entry.type);
+        const source=JSON.stringify(job,null,2);
+        if(navigator.clipboard?.writeText){
+          await navigator.clipboard.writeText(source);
+          note.textContent='JSON скопирован. Откройте workflow и вставьте в job_json.';
+        }else{
+          const blob=new Blob([source],{type:'application/json'});
+          const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='ipb_fault_'+entry.section+'.json';a.click();URL.revokeObjectURL(url);
+          note.textContent='JSON скачан. Скопируйте содержимое файла в job_json.';
+        }
+      }catch(e){note.textContent='Ошибка подготовки: '+e.message;}
+   };
+   row.append(label,button,note);target.append(row);
+ }
+ const link=document.createElement('a');link.href='https://github.com/trashchenkov/ipb-studio/actions/workflows/femm.yml';
+ link.target='_blank';link.rel='noopener noreferrer';link.textContent='Открыть FEMM в GitHub Actions ↗';link.style.color='#b5e7ff';target.append(link);
+}
+
 function run(){
  try{
-  const which=$('scScenario').value,params=inputParams(),segments=[];
+  const which=$('scScenario').value,params=inputParams(),segments=[],femmJobs=[];
   let tapCurrentA=null;
   if(which==='test'){
    const I=number('scTestCurrent')*1000,type=$('scTestType').value;
    if(!(I>0&&I<=500000))throw Error('Недопустимый ток');
    segments.push({label:'Испытательный участок',...calculate(I,type,params)});
+   femmJobs.push({label:'Испытательный участок',section:'test',current:I,angle:0,type});
   }else{
    const computed=$('scNetworkMode').value==='network'?networkSettings(which):null;
    const ig=computed?computed.generator.rms_A:number('scIG')*1000;
    const it=computed?computed.grid.rms_A:number('scIT')*1000;
    if(!(ig>0&&it>0&&ig<=500000&&it<=500000))throw Error('Токи источников вне диапазона оценки 0–500 кА');
    segments.push({label:'Главный токопровод: со стороны G',...calculate(ig,'ABC',computed?dynamicParameters(params,computed.generator):params)});
+   femmJobs.push({label:'Главный токопровод: со стороны генератора G',section:'generator',current:ig,angle:computed?computed.generator.phase_rad:0,type:'ABC'});
    segments.push({label:'Главный токопровод: со стороны GT',...calculate(it,'ABC',computed?dynamicParameters(params,computed.grid):params)});
+   femmJobs.push({label:'Главный токопровод: со стороны GT (обратное направление тока)',section:'grid',current:it,angle:(computed?computed.grid.phase_rad:0)+Math.PI,type:'ABC'});
    if(computed){
     const ph=(x)=>fmt(x*180/Math.PI,1);
     $('scNetworkOutput').textContent='Эквивалентная цепь: генератор '+fmt(ig/1000,3)+' кА ∠'+ph(computed.generator.phase_rad)+'°; сеть через GT '+fmt(it/1000,3)+' кА ∠'+ph(computed.grid.phase_rad)+'°; в точке КЗ |I_G + I_GT| = '+fmt(computed.branch.rms_A/1000,3)+' кА RMS. Баланс токов: '+fmt(computed.balance_A,6)+' А. Силы и нагрев в таблице — только оценка для соответствующих участков.';
@@ -239,6 +304,7 @@ function run(){
   $('scTable').append(controls);
   choose.onchange=()=>plot(segments[Number(choose.value)]);
   plot(segments[0]);
+  exportFaultJobs(femmJobs,which);
  }catch(e){$('scStatus').textContent='Ошибка: '+e.message;$('scMetrics').replaceChildren();$('scTable').replaceChildren();}
 }
 $('scScenario').onchange=scenarios;
