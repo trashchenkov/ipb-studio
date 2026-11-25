@@ -24,14 +24,21 @@ sigma_c=1e-6/(rho*(1+alpha*(temp_c-20)))
 sigma_s=1e-6/(rho*(1+alpha*(temp_s-20)))
 assert sigma_c>0 and sigma_s>0
 freq=float(e["frequency_hz"]); rms=float(e["phase_current_rms_A"])
+phasors=e.get("fault_phasors_rms_A")
+if phasors is not None:
+    assert len(phasors)==3 and job.get("fault_case",{}).get("type")=="harmonic_section", "Expected explicit 3 phase fault phasors"
+    phase_currents=[]
+    for v in phasors:
+        assert isinstance(v,dict) and all(math.isfinite(float(v[k])) for k in ("re","im")), "Bad fault phasor"
+        phase_currents.append(complex(float(v["re"]),float(v["im"])))
+    assert max(abs(i) for i in phase_currents)>0
+    assert abs(sum(phase_currents)) < 1e-5*max(abs(i) for i in phase_currents), "Three-wire three-phase current balance required"
+else:
+    phase_currents=[complex(rms*math.cos(math.radians(ang)),rms*math.sin(math.radians(ang))) for ang in (0,-120,120)]
 mesh=float(s["mesh_mm"]); boundary=float(s["outer_radius_mm"])
 assert freq>0 and rms>0 and 0<mesh<=10
 assert boundary>max(4000,pitch+Do)
-Ipeak=rms*math.sqrt(2)
 def n(x):return format(x,'.12g')
-def c(amp,deg):
-    q=math.radians(deg)
-    return f"({n(amp*math.cos(q))}+I*({n(amp*math.sin(q))}))"
 L=[]
 def add(x):L.append(x)
 add("-- FEMM 4.2: generated from checked IPB Studio job.")
@@ -42,8 +49,9 @@ add('mi_addmaterial("Air",1,1,0,0,0)')
 add(f'mi_addmaterial("Conductor",1,1,0,0,{n(sigma_c)})')
 add(f'mi_addmaterial("Shell",1,1,0,0,{n(sigma_s)})')
 add('mi_addboundprop("A0",0,0,0,0,0,0,0,0,0)')
-for k,deg in enumerate((0,-120,120),1):
-    add(f'mi_addcircprop("phase_{k}",{c(Ipeak,deg)},1)')
+for k,cur in enumerate(phase_currents,1):
+    peak=cur*math.sqrt(2)
+    add(f'mi_addcircprop("phase_{k}",({n(peak.real)}+I*({n(peak.imag)})),1)')
 if mode=="bonded":
     add('mi_addcircprop("bonded_shells",0,0)')
 else:
@@ -91,6 +99,21 @@ add('  cur=mo_blockintegral(7);loss=mo_blockintegral(4);area=mo_blockintegral(5)
 add('  write(out,format("shell,%d,%.10g,%.10g,%.10g,%.10g\\n",k,re(cur),im(cur),re(loss),re(area)))')
 add('end')
 add('closefile(out)')
+# Lorentz force integrals from FEMM 4.2: 11/12 = steady (time average);
+# 13/14 = complex 2*f component. 2D depth=1000 mm, so N/m.
+add(f'local force=openfile("forces_{mode}.csv","w")')
+add('write(force,"region,phase,Fx_dc_N_per_m,Fy_dc_N_per_m,Fx_2f_re_N_per_m,Fx_2f_im_N_per_m,Fy_2f_re_N_per_m,Fy_2f_im_N_per_m\\n")')
+add('for typ=1,2 do')
+add('  for k=1,3 do')
+add('    local group=k;if typ==2 then group=k+10 end')
+add('    mo_clearblock();mo_groupselectblock(group)')
+add('    local fx=mo_blockintegral(11);local fy=mo_blockintegral(12)')
+add('    local fx2=mo_blockintegral(13);local fy2=mo_blockintegral(14)')
+add('    local region="main";if typ==2 then region="shell" end')
+add('    write(force,format("%s,%d,%.10g,%.10g,%.10g,%.10g,%.10g,%.10g\\n",region,k,re(fx),re(fy),re(fx2),im(fx2),re(fy2),im(fy2)))')
+add('  end')
+add('end')
+add('closefile(force)')
 half_x=max(3500,pitch+ro+250);half_y=max(1750,ro+800)
 add(f'local fld=openfile("field_{mode}.csv","w")')
 add('write(fld,"x_mm,y_mm,Bx_re_T,Bx_im_T,By_re_T,By_im_T\\n")')
