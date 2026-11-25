@@ -6,6 +6,8 @@ on:
     paths:
       - 'circuit.js'
       - 'fault.js'
+      - 'thermal.js'
+      - 'thermal_ui.js'
       - 'femm/**'
       - 'tests/**'
       - '.github/workflows/models-ci.yml'
@@ -27,6 +29,8 @@ jobs:
         run: |
           node --check circuit.js
           node --check fault.js
+          node --check thermal.js
+          node --check thermal_ui.js
       - name: Model regression tests
         run: node --test tests/*.test.js
       - name: FEMM Lua generator regression tests
