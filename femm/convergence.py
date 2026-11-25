@@ -100,7 +100,7 @@ def summary(root:Path):
     (root/'REPORT.md').write_text('\n'.join(lines)+'\n',encoding='utf-8')
     with (root/'summary.csv').open('w',newline='',encoding='utf-8') as f:
         writer=csv.DictWriter(f,fieldnames=results[0].keys());writer.writeheader();writer.writerows(results)
-    print('\n'.join(lines),flush=True)
+    print(('\n'.join(lines)).encode('ascii','backslashreplace').decode('ascii'),flush=True)
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument('task',choices=('prepare','summarize'))
