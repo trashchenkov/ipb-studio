@@ -18,6 +18,7 @@ root.innerHTML=[
 '</select></label>',
 '<svg id="scScheme" viewBox="0 0 760 196" role="img" aria-label="Схема расположения короткого замыкания" style="width:100%;height:auto;display:block;background:#112838;border-radius:10px;border:1px solid #426279;margin:12px 0"></svg>',
 '<div id="scExplain" class="note" style="line-height:1.65;margin:10px 0"></div>',
+'<div id="scNetworkPanel" class="card" style="margin-top:12px"></div>',
 '<div class="grid2"><div>',
 '<div id="scCaseFields"></div>',
 '<label class="field">Продолжительность воздействия, с<input id="scDuration" type="number" min="0.01" max="3" step="0.01" value="1"></label>',
@@ -32,6 +33,49 @@ root.innerHTML=[
 '<canvas id="scPlot" width="1100" height="370" style="width:100%;height:auto;display:block;background:#102637;border:1px solid #41617c;border-radius:9px;margin:14px 0"></canvas>',
 '<div class="note" style="line-height:1.7"><strong>Границы достоверности.</strong> Силы: приближение параллельных бесконечных токовых нитей по осям фаз, μ₀/(2π)=2×10⁻⁷ Н/А². Нагрев: адиабатическая модель алюминиевого проводника, dT/dt=i²ρ(T)/(ρₘcₚA²), ρₘ=2700 кг/м³, cₚ=900 Дж/(кг·К). Используются текущие размеры и ρ(T) из параметров IPB Studio. Не учтены распределение токов внутри стенок, токи и силы оболочек, теплообмен, опоры, арматура, длина повреждённого участка, реальное затухание токов генератора и дуга. <strong>Это не проверка стойкости и не расчёт КЗ по IEC 60909.</strong> Для замыканий на землю необходимы нейтраль источника и пути тока через оболочки и заземление.</div>'
 ].join('');
+
+/* Positive-sequence three-phase short-circuit network (not IEC 60909). */
+const netPanel=$('scNetworkPanel');
+netPanel.innerHTML=[
+ '<h3>Откуда берутся токи КЗ?</h3>',
+ '<label class="field">Способ задания тока<select id="scNetworkMode"><option value="manual">По исходным данным примера (61 и 40 кА)</option><option value="network">Вычислить из эквивалентной схемы R + jX</option></select></label>',
+ '<div id="scNetworkInputs" style="display:none">',
+ '<p class="note">Только симметричное трёхфазное металлическое КЗ. Два источника считаются синфазными с одинаковыми действующими фазными ЭДС Uл/√3. Сопротивления заданы в Омах на фазу, вдоль токопровода — в Ом/км. Это <strong>новая условная модель</strong>, не набор параметров из книги.</p>',
+ '<label class="field">Линейное напряжение источников, кВ<input type="number" id="scNetU" value="16.5" min="0.1" max="1000" step="0.1"></label>',
+ '<div class="twoCol"><label class="field">Генератор: R, Ом<input id="scNetRg" type="number" value="0.0155" min="0" step="0.0001"></label><label class="field">Генератор: X, Ом<input id="scNetXg" type="number" value="0.155" min="0" step="0.0001"></label></div>',
+ '<div class="twoCol"><label class="field">Со стороны сети через GT: R, Ом<input id="scNetRt" type="number" value="0.0238" min="0" step="0.0001"></label><label class="field">Со стороны сети через GT: X, Ом<input id="scNetXt" type="number" value="0.238" min="0" step="0.0001"></label></div>',
+ '<div class="twoCol"><label class="field">Длина главного токопровода, м<input id="scNetLength" type="number" value="8" min="0.1" max="10000" step="1"></label><label class="field">Погонное R, Ом/км<input id="scNetRLine" type="number" value="0.03" min="0" step="0.001"></label></div>',
+ '<label class="field">Погонное X, Ом/км<input id="scNetXLine" type="number" value="0.08" min="0" step="0.001"></label>',
+ '<div id="scNetTapFields"><div class="twoCol"><label class="field">Ответвление UAT: R, Ом<input id="scNetTapR" type="number" value="0.001" min="0" step="0.001"></label><label class="field">Ответвление UAT: X, Ом<input id="scNetTapX" type="number" value="0.003" min="0" step="0.001"></label></div><p class="note">Ответвление описывается только электрическим импедансом. Для сил и нагрева его отдельная геометрия по-прежнему неизвестна.</p></div>',
+ '<p class="note">Модель однополярной симметричной схемы: для КЗ на главной линии каждый источник питаёт место повреждения по своему участку; для КЗ на UAT в общей точке присоединения решается узловое уравнение. Фазные сдвиги токов учитываются при суммировании в ответвлении. Сопротивления могут не соответствовать реальному генератору или трансформатору.</p>',
+ '</div><div id="scNetworkOutput" class="statusline" role="status" aria-live="polite">Пока используются значения из примера Агравала.</div>'
+].join('');
+function netFields(){
+ const mode=$('scNetworkMode').value,scenario=$('scScenario').value;
+ netPanel.style.display=scenario==='test'?'none':'block';
+ $('scNetworkInputs').style.display=mode==='network'&&scenario!=='test'?'block':'none';
+ $('scNetTapFields').style.display=scenario==='tap'?'block':'none';
+ for(const k of ['scIG','scIT']){const el=$(k);if(el)el.disabled=mode==='network';}
+ $('scNetworkOutput').textContent=mode==='network'?'Выбрана схема R + jX. Нажмите «Рассчитать воздействие», чтобы получить токи и оценки усилий.':'Токи задаются в полях исходного примера (61 и 40 кА).';
+}
+$('scNetworkMode').onchange=netFields;
+function networkSettings(which){
+ const model={
+ voltageLL_kV:number('scNetU'),length_m:number('scNetLength'),
+ position:which==='main'?number('scPosition')/100:0.5,
+ rg:number('scNetRg'),xg:number('scNetXg'),rt:number('scNetRt'),xt:number('scNetXt'),
+ r_per_km:number('scNetRLine'),x_per_km:number('scNetXLine'),
+ tap_r:number('scNetTapR'),tap_x:number('scNetTapX')
+ };
+ if(!globalThis.IPBCircuit)throw Error('Не загружен модуль circuit.js; обновите страницу');
+ return globalThis.IPBCircuit.network(model,which);
+}
+function dynamicParameters(base,contribution){
+ const z=contribution.impedance;
+ const xr=z.re>1e-10?z.im/z.re:100;
+ return {...base,xr:Math.max(0.1,Math.min(100,xr)),angle:base.angle+contribution.phase_rad};
+}
+
 const SVG='http://www.w3.org/2000/svg';
 const text=(x,y,s,col='#d9eaf5',size=14)=>'<text x="'+x+'" y="'+y+'" fill="'+col+'" font-size="'+size+'" text-anchor="middle">'+s+'</text>';
 const line=(x1,y1,x2,y2,c='#7daac5',w=4,dash='')=>'<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="'+c+'" stroke-width="'+w+'" '+(dash?'stroke-dasharray="'+dash+'"':'')+'/>';
@@ -85,7 +129,8 @@ function scenarios(){
  $('scExplain').textContent=explain;
  $('scCaseFields').innerHTML=form;
  const pos=$('scPosition');
- if(pos)pos.oninput=()=>{$('scPositionLabel').textContent=pos.value+'% длины; токи в сечениях задаются независимо от координаты';};
+ if(pos)pos.oninput=()=>{$('scPositionLabel').textContent=pos.value+'% длины; в режиме R+jX доли импеданса ветвей определяются координатой';};
+ netFields();
  $('scStatus').textContent='Выбрана постановка «'+NAMES[which]+'». Нажмите «Рассчитать воздействие».';
  $('scMetrics').replaceChildren();$('scTable').replaceChildren();
  const plot=$('scPlot'),ctx=plot.getContext('2d');ctx.clearRect(0,0,plot.width,plot.height);
@@ -163,21 +208,28 @@ function run(){
    if(!(I>0&&I<=500000))throw Error('Недопустимый ток');
    segments.push({label:'Испытательный участок',...calculate(I,type,params)});
   }else{
-   const ig=number('scIG')*1000,it=number('scIT')*1000;
-   if(!(ig>0&&it>0&&ig<=500000&&it<=500000))throw Error('Недопустимые токи источников');
-   segments.push({label:'Главный токопровод: со стороны G',...calculate(ig,'ABC',params)});
-   segments.push({label:'Главный токопровод: со стороны GT',...calculate(it,'ABC',params)});
+   const computed=$('scNetworkMode').value==='network'?networkSettings(which):null;
+   const ig=computed?computed.generator.rms_A:number('scIG')*1000;
+   const it=computed?computed.grid.rms_A:number('scIT')*1000;
+   if(!(ig>0&&it>0&&ig<=500000&&it<=500000))throw Error('Токи источников вне диапазона оценки 0–500 кА');
+   segments.push({label:'Главный токопровод: со стороны G',...calculate(ig,'ABC',computed?dynamicParameters(params,computed.generator):params)});
+   segments.push({label:'Главный токопровод: со стороны GT',...calculate(it,'ABC',computed?dynamicParameters(params,computed.grid):params)});
+   if(computed){
+    const ph=(x)=>fmt(x*180/Math.PI,1);
+    $('scNetworkOutput').textContent='Эквивалентная цепь: генератор '+fmt(ig/1000,3)+' кА ∠'+ph(computed.generator.phase_rad)+'°; сеть через GT '+fmt(it/1000,3)+' кА ∠'+ph(computed.grid.phase_rad)+'°; в ответвлении / в точке КЗ |I_G + I_GT| = '+fmt(computed.branch.rms_A/1000,3)+' кА RMS. Баланс токов: '+fmt(computed.balance_A,6)+' А. Силы и нагрев в таблице — только оценка для соответствующих участков.';
+   }else $('scNetworkOutput').textContent='Использованы назначенные токи из примера; импедансы и реальные токи источников не определялись.';
+   if(which==='tap') window.__ipbTapCurrentA=computed?computed.branch.rms_A:ig+it;
    // UAT tap-off has its own geometry, which is not in the current model: do not calculate its forces/temperatures here.
   }
   const biggest=segments.reduce((a,b)=>Math.max(a,...b.fmax),0);
   const maxRise=segments.reduce((a,b)=>Math.max(a,...b.temps.map(t=>t-b.T0)),0);
-  const largestI=(which==='tap' ? number('scIG')+number('scIT') : Math.max(...segments.map(s=>s.I))/1000);
+  const largestI=(which==='tap' ? window.__ipbTapCurrentA/1000 : Math.max(...segments.map(s=>s.I))/1000);
   const mode=$('scScenario').value;
   $('scStatus').textContent=(mode==='test'?'Испытание участка':'Повреждение в схеме G—GT')+'. Рассчитано сечений: '+segments.length+'. Временная зависимость тока условная, не воспроизведение динамики генератора. Для рисунка ниже выбран первый участок.';
   $('scMetrics').innerHTML=[['Максимальный заданный ток сечения',fmt(largestI,1)+' кА RMS'],['Макс. погонная сила',fmt(biggest/1000,2)+' кН/м'],['Макс. оценочный нагрев',fmt(maxRise,3)+' К']].map(([a,b])=>'<div class="metric"><small>'+a+'</small><strong>'+b+'</strong></div>').join('');
   let body='<table class="table"><thead><tr><th>Сечение</th><th>Ток, кА RMS</th><th>max |Fx|, кН/м</th><th>max ΔT, K</th><th>∫i²dt фазы A, МА²·с</th></tr></thead><tbody>';
   for(const s of segments)body+='<tr><td>'+s.label+'</td><td>'+fmt(s.I/1000,1)+'</td><td>'+fmt(Math.max(...s.fmax)/1000,2)+'</td><td>'+fmt(Math.max(...s.temps.map(t=>t-s.T0)),3)+'</td><td>'+fmt(s.i2dt[0]/1e12,6)+'</td></tr>';
-  if(which==='tap')body+='<tr><td>Ответвление UAT (геометрия не задана)</td><td>'+fmt(largestI,1)+'</td><td>Не рассчитывается</td><td>Не рассчитывается</td><td>Не рассчитывается</td></tr>';
+  if(which==='tap')body+='<tr><td>Ответвление UAT (геометрия не задана)</td><td>'+fmt(largestI,3)+'</td><td>Не рассчитывается</td><td>Не рассчитывается</td><td>Не рассчитывается</td></tr>';
   $('scTable').innerHTML=body+'</tbody></table>';
   const choose=document.createElement('select');choose.id='scPlotSelect';
   for(let i=0;i<segments.length;i++)choose.add(new Option(segments[i].label,String(i)));
