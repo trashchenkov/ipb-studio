@@ -40,3 +40,24 @@ test('reject invalid geometry or negative losses',()=>{
  assert.throws(()=>solve({...example,P_shell_W_per_m:-10}));
  assert.throws(()=>solve({...example,h_out_W_m2K:0}));
 });
+
+test('distinct inner and outer shell emissivity affect different heat paths',()=>{
+ const base=solve({...example,eps_shell:.65,eps_shell_inner:.2});
+ const inner=solve({...example,eps_shell:.65,eps_shell_inner:.9});
+ assert.ok(inner.T_conductor_C<base.T_conductor_C);
+ approx(inner.T_shell_C,base.T_shell_C);
+ const outer=solve({...example,eps_shell:.95,eps_shell_inner:.2});
+ assert.ok(outer.T_shell_C<base.T_shell_C);
+ assert.ok(outer.T_conductor_C<base.T_conductor_C);
+});
+test('legacy shell emissivity applies to both faces if inner is omitted',()=>{
+ const legacy=solve(example);
+ const explicit=solve({...example,eps_shell_inner:example.eps_shell});
+ approx(legacy.T_conductor_C,explicit.T_conductor_C);
+ approx(legacy.T_shell_C,explicit.T_shell_C);
+});
+test('reject invalid inner shell emissivity',()=>{
+ for(const value of [0,-.2,1.1,NaN,Infinity,'0.7']){
+   assert.throws(()=>solve({...example,eps_shell_inner:value}));
+ }
+});
