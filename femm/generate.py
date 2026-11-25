@@ -52,9 +52,15 @@ add('mi_addboundprop("A0",0,0,0,0,0,0,0,0,0)')
 for k,cur in enumerate(phase_currents,1):
     peak=cur*math.sqrt(2)
     add(f'mi_addcircprop("phase_{k}",({n(peak.real)}+I*({n(peak.imag)})),1)')
+# FEMM parallel circuit (type=0) enforces equal longitudinal voltage drop
+# across all regions and conserved specified total current. This is an
+# ideal zero-resistance bonded-end approximation, not a physical 3-D
+# end-bond/ground-loop model. Isolated=three independent zero-current nets.
 if mode=="bonded":
+    add('-- Idealized shells cross-bonded at both ends: one parallel 0 A circuit; not ground impedance.')
     add('mi_addcircprop("bonded_shells",0,0)')
 else:
+    add('-- Shell sections isolated in longitudinal direction: 3 independent zero-current parallel circuits.')
     for k in range(1,4):add(f'mi_addcircprop("isolated_shell_{k}",0,0)')
 add('function circle(cx,cy,rad,bc)')
 add('  local px={cx+rad,cx,cx-rad,cx}; local py={cy,cy+rad,cy,cy-rad}')
@@ -99,6 +105,18 @@ add('  cur=mo_blockintegral(7);loss=mo_blockintegral(4);area=mo_blockintegral(5)
 add('  write(out,format("shell,%d,%.10g,%.10g,%.10g,%.10g\\n",k,re(cur),im(cur),re(loss),re(area)))')
 add('end')
 add('closefile(out)')
+# Record FEMM circuit properties for reproducible verification of the
+# aggregate zero-current, common-voltage shell approximation.
+add(f'local circ=openfile("circuits_{mode}.csv","w")')
+add('write(circ,"circuit,I_re_peak_A,I_im_peak_A,V_re_V,V_im_V,flux_re,flux_im\\n")')
+if mode=="bonded":
+    circuits=["bonded_shells"]
+else:
+    circuits=[f"isolated_shell_{k}" for k in range(1,4)]
+for circuit in circuits+[f"phase_{k}" for k in range(1,4)]:
+    add(f'local ci,cv,cf=mo_getcircuitproperties("{circuit}")')
+    add(f'write(circ,format("{circuit},%.10g,%.10g,%.10g,%.10g,%.10g,%.10g\\n",re(ci),im(ci),re(cv),im(cv),re(cf),im(cf)))')
+add('closefile(circ)')
 # Lorentz force integrals from FEMM 4.2: 11/12 = steady (time average);
 # 13/14 = complex 2*f component. 2D depth=1000 mm, so N/m.
 add(f'local force=openfile("forces_{mode}.csv","w")')
