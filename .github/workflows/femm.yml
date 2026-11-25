@@ -99,7 +99,7 @@ jobs:
             throw "FEMM timed out"
           }
           if ($p.ExitCode -ne 0) { throw "FEMM exited with code $($p.ExitCode)" }
-          foreach ($file in @("results_$mode.csv","forces_$mode.csv","field_$mode.csv")) {
+          foreach ($file in @("results_$mode.csv","circuits_$mode.csv","forces_$mode.csv","field_$mode.csv")) {
             if (!(Test-Path $file)) { throw "FEMM did not produce $file" }
           }
 
@@ -121,6 +121,7 @@ jobs:
             out/case_*.fem
             out/results_*.csv
             out/forces_*.csv
+            out/circuits_*.csv
             out/field_*.csv
             out/ipb_result.json
             out/RESULTS.md
