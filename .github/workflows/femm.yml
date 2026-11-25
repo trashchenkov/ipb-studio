@@ -1,10 +1,6 @@
 name: Calculate IPB using FEMM (Windows)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'femm/fault_smoke_job.json'
   workflow_dispatch:
     inputs:
       mode:
@@ -46,7 +42,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "out" | Out-Null
           @'
           import json,os,pathlib
-          p=pathlib.Path("femm/fault_smoke_job.json" if os.environ.get("GITHUB_EVENT_NAME")=="push" else "femm/example_job.json")
+          p=pathlib.Path("femm/example_job.json")
           j=json.loads(p.read_text(encoding="utf-8"))
           supplied=os.environ.get("IPB_JOB_JSON","").strip()
           if supplied:
