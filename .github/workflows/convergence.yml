@@ -62,7 +62,7 @@ jobs:
               throw "FEMM timeout for $($case.Name)"
             }
             if ($p.ExitCode -ne 0) { throw "FEMM returned $($p.ExitCode) for $($case.Name)" }
-            foreach ($name in @("results_$($job.electrical.mode).csv","forces_$($job.electrical.mode).csv","field_$($job.electrical.mode).csv")) {
+            foreach ($name in @("results_$($job.electrical.mode).csv","forces_$($job.electrical.mode).csv","circuits_$($job.electrical.mode).csv","field_$($job.electrical.mode).csv")) {
               if (-not (Test-Path (Join-Path $case.FullName $name))) { throw "$($case.Name) missing $name" }
             }
           }
@@ -84,6 +84,7 @@ jobs:
             convergence_out/**/case_*.fem
             convergence_out/**/results_*.csv
             convergence_out/**/forces_*.csv
+            convergence_out/**/circuits_*.csv
             convergence_out/**/field_*.csv
             convergence_out/**/ipb_result.json
           if-no-files-found: warn
