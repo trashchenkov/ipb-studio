@@ -59,7 +59,12 @@ if forces_file.exists():
     for row in ff:
         item={'region':row['region'],'phase':'ABC'[int(row['phase'])-1]}
         assert item['region'] in ('main','shell')
-        for col in ('Fx_dc_N_per_m','Fy_dc_N_per_m','Fx_2f_re_N_per_m','Fx_2f_im_N_per_m','Fy_2f_re_N_per_m','Fy_2f_im_N_per_m'):
+        base_cols=('Fx_dc_N_per_m','Fy_dc_N_per_m','Fx_2f_re_N_per_m','Fx_2f_im_N_per_m','Fy_2f_re_N_per_m','Fy_2f_im_N_per_m')
+        wst_cols=('Fx_wst_dc_N_per_m','Fy_wst_dc_N_per_m','Fx_wst_2f_re_N_per_m','Fx_wst_2f_im_N_per_m','Fy_wst_2f_re_N_per_m','Fy_wst_2f_im_N_per_m')
+        if job.get('fault_case') and not all(col in row for col in wst_cols):
+            raise AssertionError('New fault calculations require FEMM weighted stress tensor outputs')
+        for col in base_cols+wst_cols:
+            if col not in row: continue  # Historical results can omit WST
             item[col]=float(row[col])
             assert math.isfinite(item[col]),'Invalid force: '+col
         forces.append(item)
