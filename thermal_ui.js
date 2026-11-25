@@ -10,16 +10,17 @@ root.innerHTML=[
 '<label class="field">Температура окружающего воздуха, °C<input id="thermalAmbient" type="number" min="-40" max="100" step="1" value="25"></label>',
 '<label class="field">Условный эффективный коэффициент теплоотдачи в зазоре, Вт/(м²·К)<input id="thermalGapH" type="number" min="0.1" max="100" step="0.1" value="5"></label>',
 '<label class="field">Коэффициент теплоотдачи внешней поверхности оболочки, Вт/(м²·К)<input id="thermalOutH" type="number" min="0.1" max="100" step="0.1" value="10"></label>',
-'<div class="twoCol"><label class="field">Излучательная способность проводника, ε<input id="thermalEc" type="number" min="0.01" max="1" step="0.01" value="0.3"></label><label class="field">Оболочки, ε<input id="thermalEs" type="number" min="0.01" max="1" step="0.01" value="0.65"></label></div>',
+'<div class="twoCol"><label class="field">Излучательная способность проводника, ε<input id="thermalEc" type="number" min="0.01" max="1" step="0.01" value="0.3"></label><label class="field">Внутренней поверхности оболочки, ε<input id="thermalEsi" type="number" min="0.01" max="1" step="0.01" value="0.3"></label></div>',
+'<label class="field">Наружной поверхности оболочки, ε<input id="thermalEs" type="number" min="0.01" max="1" step="0.01" value="0.65"></label>',
 '<button id="thermalCompute" class="primary" type="button">Вычислить температурную оценку</button>',
 '</div><div>',
 '<div class="statusline" id="thermalStatus" role="status" aria-live="polite">Выберите расчёт FEMM и задайте условия охлаждения.</div>',
-'<p class="note">Для светло-серой наружной поверхности ε = 0,65 использовано как литературное исходное значение по Агравалу; это <strong>не измеренная характеристика нашего изделия</strong>. Коэффициенты теплоотдачи и ε проводника остаются предположениями. Нужно уточнить ориентацию токопровода, конструкцию воздушного зазора, окраску/окисление поверхностей, вентиляцию, температуру окружающей среды и теплоотвод через опоры.</p>',
+'<p class="note">Для светло-серой наружной поверхности ε = 0,65 использовано как литературное исходное значение по Агравалу; это <strong>не измеренная характеристика нашего изделия</strong>. Коэффициенты теплоотдачи, ε проводника и ε внутренней поверхности оболочки остаются предположениями. Внешнее покрытие не определяет ε внутренней поверхности. Нужно уточнить ориентацию токопровода, конструкцию воздушного зазора, окраску/окисление поверхностей, вентиляцию, температуру окружающей среды и теплоотвод через опоры.</p>',
 '</div></div>',
 '<div id="thermalTable"></div>',
 '<p class="note">Модель игнорирует теплопроводность вдоль токопровода, взаимный теплообмен соседних оболочек, конвекционные течения внутри зазора и локальные термические сопротивления. В случае аварийного тока FEMM даёт гармонические потери при заданной температуре — это <strong>не</strong> температурный процесс во времени. Большие рассчитанные температуры означают выход за область применимости, а не прогноз для промышленного изделия.</p>'
 ].join('');
-const ids=['thermalAmbient','thermalGapH','thermalOutH','thermalEc','thermalEs'];
+const ids=['thermalAmbient','thermalGapH','thermalOutH','thermalEc','thermalEsi','thermalEs'];
 for(const id of ids)byId(id).addEventListener('change',recompute);
 byId('thermalCompute').onclick=recompute;
 document.addEventListener('ipb-result-selected',recompute);
@@ -44,7 +45,7 @@ function recompute(){
      ambient_C:number('thermalAmbient'),
      h_gap_W_m2K:number('thermalGapH'),
      h_out_W_m2K:number('thermalOutH'),
-     eps_conductor:number('thermalEc'),eps_shell:number('thermalEs')
+     eps_conductor:number('thermalEc'),eps_shell_inner:number('thermalEsi'),eps_shell:number('thermalEs')
    };
    const phases=[];
    for(const ph of 'ABC'){
