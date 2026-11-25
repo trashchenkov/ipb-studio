@@ -6,6 +6,7 @@ on:
     paths:
       - 'index.html'
       - 'fault.js'
+      - 'circuit.js'
       - '.github/workflows/pages.yml'
   workflow_run:
     workflows: ["Publish validated FEMM results"]
@@ -40,6 +41,7 @@ jobs:
           mkdir -p _site
           cp index.html _site/index.html
           cp fault.js _site/fault.js
+          cp circuit.js _site/circuit.js
           if [ -d results ]; then cp -r results _site/results; fi
           touch _site/.nojekyll
       - name: Upload website
