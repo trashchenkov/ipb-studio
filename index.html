@@ -51,7 +51,7 @@
 <div class="card" id="faultModule"><h3>Оценка КЗ</h3><p class="note">Загружается расчётный модуль…</p></div>
 </div>
 <div class="page" id="resultsPage"><div class="row space"><div><h2>Результаты</h2><p class="muted">Выбери сохранённый расчёт. Поле и потери будут показаны только для него.</p></div><button id="toCompare">Сравнить с другим</button></div><div class="card"><h3>Выбрать расчёт</h3><p class="note">Сначала показаны расчёты, соответствующие текущему заданию: геометрии, схеме оболочек, токам, материалам и настройкам FEMM. Остальные доступны ниже. Названия сохраняются только в этом браузере.</p><div id="resultCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(265px,1fr));gap:10px;margin:12px 0"></div><div class="controls"><button id="restoreSelectedJob">Восстановить конструкцию из расчёта</button></div><details style="margin-top:10px"><summary style="cursor:pointer;color:#abc9dc">Технический список расчётов</summary><label class="field">Расчёт<select id="resultSelect"></select></label></details><div id="resultInfo" class="note" style="margin-top:12px"></div></div>
-<div class="grid3" id="resultMetrics"></div><div class="card"><h3>Карта магнитной индукции |B|, мТ</h3><div id="singleMapHolder"><canvas class="singlemap" id="resultMap" width="900" height="450"></canvas></div><p id="singleMapNote" class="note"></p><div class="legendbar"></div><div class="legendticks" id="resultTicks"></div></div><div class="card"><h3>Токи и потери по фазам</h3><div id="resultTable"></div></div></div>
+<div class="grid3" id="resultMetrics"></div><div class="card"><h3>Карта магнитной индукции |B|, мТ</h3><div id="singleMapHolder"><canvas class="singlemap" id="resultMap" width="900" height="450"></canvas></div><p id="singleMapNote" class="note"></p><div class="legendbar"></div><div class="legendticks" id="resultTicks"></div></div><div class="card"><h3>Токи и потери по фазам</h3><div id="resultTable"></div></div><div class="card"><h3>Электродинамические силы FEMM</h3><div id="resultFEMMForces" class="note">Для этого расчёта силы не загружены.</div></div></div>
 <div class="page" id="comparePage"><h2>Сравнение расчётов</h2><p class="muted">Выбери два расчёта, затем сравни их по одной цветовой шкале и в одной контрольной точке.</p>
 <div class="card"><div class="twoCol"><label class="field">Вариант 1<select id="compareA"></select></label><label class="field">Вариант 2<select id="compareB"></select></label></div><div class="controls"><label class="field">Верхняя граница шкалы, мТ<input id="colorMax" type="range" min="0.25" max="18" step="0.25" value="3"></label><label class="field"><input id="showContours" type="checkbox" checked> Показывать контуры</label><button id="probeReset">Сбросить точку</button></div><div id="compareNote" class="note"></div></div>
 <div class="mapgrid"><div class="mapbox"><h3 id="leftName">—</h3><canvas id="mapLeft" width="840" height="420"></canvas></div><div class="mapbox"><h3 id="rightName">—</h3><canvas id="mapRight" width="840" height="420"></canvas></div></div>
@@ -188,7 +188,7 @@ function validate(j){const errs=geometryValidation(j.geometry);const e=j.electri
  if(!(m.rho20_ohm_m>0&&m.alpha_per_K>=0))errs.push('Некорректные параметры материала');
  if(!Number.isFinite(m.conductor_C)||!Number.isFinite(m.shell_C))errs.push('Некорректная температура');
  if(!(s.mesh_mm>0&&s.outer_radius_mm>Math.max(4000,j.geometry.phase_pitch_mm+j.geometry.shell_outer_diameter_mm)))errs.push('Неверная сетка или внешняя граница');return errs;}
-function makeRecord(id,label,j,regions,field,source){return {id,label,job:copy(j),regions:copy(regions),field:field?copy(field):null,source,created_at:source==='Архив FEMM'?'2026-11-25':new Date().toISOString()};}
+function makeRecord(id,label,j,regions,field,source){return {id,label,job:copy(j),regions:copy(regions),field:field?copy(field):null,forces:null,source,created_at:source==='Архив FEMM'?'2026-11-25':new Date().toISOString()};}
 for(const mode of ['bonded','isolated']){
   const j=copy(BASEJOB);j.electrical.mode=mode;
   records.push(makeRecord('builtin-'+mode,mode==='bonded'?'Агравал · оболочки соединены':'Агравал · оболочки изолированы',j,RAW.results[mode].map(r=>({...r,phase:String(r.phase)})),RAW.fields[mode],'Архив FEMM'));
@@ -276,8 +276,24 @@ function drawMap(canvas,rec,marks=true){const ctx=canvas.getContext('2d'),W=canv
  if(marks){const g=rec.job.geometry,radShell=g.shell_outer_diameter_mm/2000,radCond=g.conductor_outer_diameter_mm/2000,p=g.phase_pitch_mm/1000;for(let i=0;i<3;i++){const x=(i-1)*p;for(const [r,stroke] of [[radShell,'#daeaf4'],[radCond,'#ffe0b1']]){ctx.beginPath();ctx.ellipse(px(x),py(0),r*W/FIELD_VIEW.w,r*H/FIELD_VIEW.h,0,0,2*Math.PI);ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke()}ctx.fillStyle='#fff';ctx.font='bold 16px system-ui';ctx.textAlign='center';ctx.fillText('ABC'[i],px(x),py(-radShell-.22));}}
  ctx.strokeStyle='#fff';ctx.lineWidth=2;let X=px(probe.x),Y=py(probe.y);ctx.beginPath();ctx.moveTo(X-10,Y);ctx.lineTo(X+10,Y);ctx.moveTo(X,Y-10);ctx.lineTo(X,Y+10);ctx.stroke();ctx.textAlign='left';ctx.font='bold 14px system-ui';let b=sample(d,probe.x,probe.y);if(Number.isFinite(b)){ctx.fillStyle='#fff';ctx.fillText(fmt(b*1000,3)+' мТ',Math.max(8,Math.min(W-120,X+14)),Math.max(18,Y-14));}}
 function tickHTML(){return [0,.25,.5,.75,1].map(k=>`<span>${fmt(k*currentScale,2)}${k===1?' мТ':''}</span>`).join('');}
-function renderResults(){refreshSelects();const rec=records.find(r=>r.id===selectedId)||records[0];if(!rec)return;selectedId=rec.id;renderResultCards();$('resultInfo').innerHTML=`Источник: <strong>${rec.source}</strong> · режим: <strong>${rec.job.electrical.mode}</strong> · ${fmt(rec.job.electrical.frequency_hz,0)} Гц · ${fmt(rec.job.electrical.phase_current_rms_A,0)} A RMS<br>Диаметры: ${fmt(rec.job.geometry.conductor_outer_diameter_mm,1)} / ${fmt(rec.job.geometry.shell_outer_diameter_mm,1)} мм; шаг фаз ${fmt(rec.job.geometry.phase_pitch_mm,1)} мм. <br><strong>${cfgKey(rec.job)===cfgKey(job())?'Соответствует текущему заданию':'Архивный расчёт — не соответствует текущему заданию'}</strong>`;
+function renderResults(){refreshSelects();const rec=records.find(r=>r.id===selectedId)||records[0];if(!rec)return;selectedId=rec.id;renderResultCards();$('resultInfo').innerHTML=`${rec.job.fault_case?.type==='harmonic_section'?'Гармонический аварийный участок: '+(rec.job.fault_case.section||'')+' · ':''}Источник: <strong>${rec.source}</strong> · режим: <strong>${rec.job.electrical.mode}</strong> · ${fmt(rec.job.electrical.frequency_hz,0)} Гц · ${fmt(rec.job.electrical.phase_current_rms_A,0)} A RMS (максимальный фазный ток)<br>Диаметры: ${fmt(rec.job.geometry.conductor_outer_diameter_mm,1)} / ${fmt(rec.job.geometry.shell_outer_diameter_mm,1)} мм; шаг фаз ${fmt(rec.job.geometry.phase_pitch_mm,1)} мм. <br><strong>${cfgKey(rec.job)===cfgKey(job())?'Соответствует текущему заданию':'Архивный расчёт — не соответствует текущему заданию'}</strong>`;
  $('resultMetrics').innerHTML=[['Потери в проводниках',sumRegion(rec,'main')],['Потери в оболочках',sumRegion(rec,'shell')],['Всего',sumRegion(rec,'main')+sumRegion(rec,'shell')]].map(([k,v])=>`<div class="metric"><small>${k}</small><strong>${fmt(v,1)} Вт/м</strong></div>`).join('');
+ const fieldForce=$('resultFEMMForces');
+ const forceRows=rec.forces||[];
+ if(forceRows.length){
+   const table=document.createElement('table');table.className='table';
+   const header=document.createElement('thead');header.innerHTML='<tr><th>Область</th><th>Фаза</th><th>Fx, средняя, Н/м</th><th>Fy, средняя, Н/м</th><th>|Fx₂f|, Н/м</th><th>|Fy₂f|, Н/м</th></tr>';table.append(header);
+   const tbody=document.createElement('tbody');
+   for(const r of forceRows){
+     const tr=document.createElement('tr');
+     const values=[r.region==='main'?'Проводник':'Оболочка',r.phase,fmt(+r.Fx_dc_N_per_m,2),fmt(+r.Fy_dc_N_per_m,2),fmt(Math.hypot(+r.Fx_2f_re_N_per_m,+r.Fx_2f_im_N_per_m),2),fmt(Math.hypot(+r.Fy_2f_re_N_per_m,+r.Fy_2f_im_N_per_m),2)];
+     values.forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.append(td);});tbody.append(tr);
+   }
+   table.append(tbody);fieldForce.replaceChildren(table);
+   const caption=document.createElement('p');caption.className='note';
+   caption.textContent='Силы получены интегралами Лоренца FEMM для гармонического режима: средняя составляющая и амплитуда 2f (на единицу длины). Они не являются пиковыми усилиями переходного КЗ; для полной временной силы требуются комплексные компоненты и отдельная модель переходных токов.';
+   fieldForce.append(caption);
+ }else fieldForce.textContent='Для этого расчёта интегралы электродинамических сил FEMM не загружены.';
  drawMap($('resultMap'),rec,true);$('resultTicks').innerHTML=tickHTML();$('singleMapNote').textContent=rec.field?'Численная карта FEMM. Цвет показывает модуль B в мТ; это результаты именно выбранного расчёта.':'Для выбранного расчёта доступны только интегральные результаты: поле не загружено.';$('resultTable').innerHTML=regionsTable(rec);}
 function renderCompare(){refreshSelects();const a=records.find(r=>r.id===$('compareA').value)||records[0],b=records.find(r=>r.id===$('compareB').value)||records[1];if(!a||!b)return;$('leftName').textContent=a.label;$('rightName').textContent=b.label;
  drawMap($('mapLeft'),a,$('showContours').checked);drawMap($('mapRight'),b,$('showContours').checked);$('compareTicks').innerHTML=tickHTML();
@@ -307,10 +323,13 @@ function normalizeResult(obj){if(!obj||!['ipb-femm-result-v2','ipb-femm-result-v
  const err=validate(obj.job);if(err.length)throw Error('Некорректные параметры расчёта: '+err.join('; '));
  const parts=obj.result?.regions;if(!Array.isArray(parts)||parts.length!==6)throw Error('Ожидаются 6 строк данных по областям');const found=new Set();for(const r of parts){if(!['main','shell'].includes(r.region)||!['A','B','C'].includes(String(r.phase))||!Number.isFinite(Number(r.P_W_per_m))||Number(r.P_W_per_m)<0)throw Error('Некорректные потери');found.add(r.region+'/'+r.phase)}if(found.size!==6)throw Error('Повтор или пропуск фазы');
  let field=obj.field||null;if(field && (field.schema!=='ipb-field-grid-v1'||field.nx*field.ny!==field.values.length||field.nx>500||field.ny>500||!Array.isArray(field.bounds_m)||field.bounds_m.length!==4||field.values.some(x=>!Number.isFinite(x)||x<0)||field.unit!=='T'))throw Error('Некорректная карта поля');
- if(obj.result.mode!==obj.job.electrical.mode)throw Error('Схема оболочек в result не совпадает с job');return {parts,field};}
+ if(obj.result.mode!==obj.job.electrical.mode)throw Error('Схема оболочек в result не совпадает с job');
+ let forces=obj.result?.forces||null;
+ if(forces && (!Array.isArray(forces)||forces.length!==6||forces.some(r=>!['main','shell'].includes(r.region)||!['A','B','C'].includes(r.phase)||['Fx_dc_N_per_m','Fy_dc_N_per_m','Fx_2f_re_N_per_m','Fx_2f_im_N_per_m','Fy_2f_re_N_per_m','Fy_2f_im_N_per_m'].some(k=>!Number.isFinite(+r[k])))))throw Error('Некорректная таблица сил FEMM');
+ return {parts,field,forces};}
 function persist(){try{const user=records.filter(r=>r.source==='Пользовательский FEMM');const serialized=JSON.stringify(user);if(serialized.length<3000000)localStorage.setItem('ipb_studio_records_v2',serialized);else notice='Данные слишком велики для локального хранения. Сохрани проект как JSON.';}catch(e){notice='Локальное хранение недоступно; скачай проект.'}}
 function loadSaved(){try{const saved=JSON.parse(localStorage.getItem('ipb_studio_records_v2')||'[]');for(const r of saved){if(r&&r.job&&Array.isArray(r.regions)&&r.id&&r.source==='Пользовательский FEMM')records.push(r)}}catch(e){}}
-function addRecord(obj,label){const {parts,field}=normalizeResult(obj);const id='user-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,7),rec=makeRecord(id,label,obj.job,parts,field,'Пользовательский FEMM');records.push(rec);selectedId=id;persist();refreshSelects();workflowUpdated();return rec;}
+function addRecord(obj,label){const {parts,field,forces}=normalizeResult(obj);const id='user-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,7),rec=makeRecord(id,label,obj.job,parts,field,'Пользовательский FEMM');rec.forces=forces;records.push(rec);selectedId=id;persist();refreshSelects();workflowUpdated();return rec;}
 for(const nav of document.querySelectorAll('[data-page]'))nav.onclick=()=>show(nav.dataset.page);
 $('toCalc').onclick=()=>show('calculate');$('viewApplicable').onclick=()=>{const matches=resultsMatchingCurrent();if(matches.length)selectedId=matches[0].id;show('results')};$('toCompare').onclick=()=>show('compare');
 $('saveNewVariant').onclick=()=>{const j=job();if(validate(j).length)return;drafts.push(copy(j));updateDrafts();};
@@ -458,8 +477,8 @@ async function loadPublished(){
         const obj=await response.json();
         const normalized=normalizeResult(obj);
         if(obj.provenance?.workflow_run_id!==entry.run_id||obj.provenance?.status!=='validated')throw Error('Не совпадает происхождение расчёта');
-        const name='GitHub FEMM #'+entry.run_id+' · '+(obj.job.electrical.mode==='bonded'?'соединённые оболочки':'изолированные оболочки');
-        records.push(makeRecord(id,name,obj.job,normalized.parts,normalized.field,'GitHub Actions'));
+        const name=(obj.job.fault_case?.type==='harmonic_section'?'FEMM · аварийный участок '+(obj.job.fault_case.section||''):'FEMM · штатный режим')+' · #'+entry.run_id+' · '+(obj.job.electrical.mode==='bonded'?'соединённые оболочки':'изолированные оболочки');
+        const record=makeRecord(id,name,obj.job,normalized.parts,normalized.field,'GitHub Actions');record.forces=normalized.forces;records.push(record);
         loaded++;
       }catch(err){console.warn('Failed to load FEMM run',entry.run_id,err);errors++;}
     }
