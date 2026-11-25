@@ -34,7 +34,7 @@
 <label class="field">Температурный коэффициент, 1/К<input id="alphaT" type="number" min="0" step="0.00001" value="0.00403"></label>
 <div class="twoCol"><label class="field">Температура проводника, °C<input id="tCond" type="number" value="105"></label><label class="field">Температура оболочки, °C<input id="tShell" type="number" value="95"></label></div>
 <div class="twoCol"><label class="field">Сетка металла, мм<input id="meshMM" type="number" min="0.1" max="20" step="0.1" value="1"></label><label class="field">Радиус внешней границы, мм<input id="boundMM" type="number" min="4000" step="1000" value="12000"></label></div>
-</div><div><div class="card"><h3>Проверка постановки</h3><div id="jobCheck" class="note"></div><p class="insight">FEMM здесь не запускается. Кнопка создаёт воспроизводимое задание. Для запуска на GitHub Actions или Windows понадобится отдельный исполнитель.</p><div class="controls"><button class="primary" id="exportJob">Скачать задание JSON</button><button id="exportLua">Скачать Lua</button></div><p class="note">Ток в Lua задаётся амплитудой √2 × RMS. Изменение геометрии создаёт новый расчёт, а не перезаписывает старый.</p></div><div class="card"><h3>Добавить полученный результат</h3><label class="field">Результат JSON (после выполнения FEMM)<input type="file" id="importResult" accept=".json,application/json"></label><div id="importStatus" class="statusline">Ни один пользовательский результат ещё не загружен.</div><p class="note">Для экспорта полей и потерь используй приложенный <code>make_result.py</code>. Результат привязывается ко всем расчётным параметрам, а не только к диаметрам.</p></div></div></div></div>
+</div><div><div class="card"><h3>Проверка постановки</h3><div id="jobCheck" class="note"></div><p class="insight">FEMM здесь не запускается. Кнопка создаёт воспроизводимое задание. Для запуска на GitHub Actions или Windows понадобится отдельный исполнитель.</p><div class="controls"><button class="primary" id="exportJob">Скачать задание JSON</button><button id="exportLua">Скачать Lua</button></div><p class="note">Ток в Lua задаётся амплитудой √2 × RMS. Изменение геометрии создаёт новый расчёт, а не перезаписывает старый.</p></div><div class="card"><h3>Добавить полученный результат</h3><label class="field">Результат JSON (после выполнения FEMM)<input type="file" id="importResult" accept=".json,application/json"></label><div id="importStatus" class="statusline">Ни один пользовательский результат ещё не загружен.</div><div id="publishedStatus" class="statusline" aria-live="polite">Загружаются расчёты FEMM из GitHub Actions…</div><p class="note">Для экспорта полей и потерь используй приложенный <code>make_result.py</code>. Результат привязывается ко всем расчётным параметрам, а не только к диаметрам.</p></div></div></div></div>
 <div class="page" id="resultsPage"><div class="row space"><div><h2>Результаты</h2><p class="muted">Выбери сохранённый расчёт. Поле и потери будут показаны только для него.</p></div><button id="toCompare">Сравнить с другим</button></div><div class="card"><label class="field">Расчёт<select id="resultSelect"></select></label><div id="resultInfo" class="note"></div></div>
 <div class="grid3" id="resultMetrics"></div><div class="card"><h3>Карта магнитной индукции |B|, мТ</h3><div id="singleMapHolder"><canvas class="singlemap" id="resultMap" width="900" height="450"></canvas></div><p id="singleMapNote" class="note"></p><div class="legendbar"></div><div class="legendticks" id="resultTicks"></div></div><div class="card"><h3>Токи и потери по фазам</h3><div id="resultTable"></div></div></div>
 <div class="page" id="comparePage"><h2>Сравнение расчётов</h2><p class="muted">Выбери два расчёта, затем сравни их по одной цветовой шкале и в одной контрольной точке.</p>
@@ -245,5 +245,37 @@ for(const id of ['resultMap'])$(id).addEventListener('click',e=>{const b=e.curre
 for(const id of [...DIM_IDS,'runShellMode','freq','currentA','rho','alphaT','tCond','tShell','meshMM','boundMM'])$(id).addEventListener('input',()=>{workflowUpdated();});
 $('mReset').addEventListener('click',()=>setTimeout(workflowUpdated,1));
 loadSaved();refreshSelects();updateDrafts();workflowUpdated();show('design');
+
+async function loadPublished(){
+  const status=$('publishedStatus');
+  try{
+    const manifestResponse=await fetch('./results/index.json',{cache:'no-store'});
+    if(!manifestResponse.ok)throw Error('Список результатов: HTTP '+manifestResponse.status);
+    const manifest=await manifestResponse.json();
+    if(manifest.schema!=='ipb-results-index-v1'||!Array.isArray(manifest.runs))throw Error('Неподдерживаемый формат перечня расчётов');
+    let loaded=0,errors=0;
+    for(const entry of manifest.runs.slice(0,12)){
+      if(!Number.isSafeInteger(entry.run_id)||!/^\bresults\/run-[0-9]+\.json$/.test(entry.path)||entry.path!=='results/run-'+entry.run_id+'.json'){errors++;continue;}
+      const id='github-'+entry.run_id;
+      if(records.some(r=>r.id===id))continue;
+      try{
+        const response=await fetch('./'+entry.path,{cache:'no-store'});
+        if(!response.ok)throw Error('HTTP '+response.status);
+        const obj=await response.json();
+        const normalized=normalizeResult(obj);
+        if(obj.provenance?.workflow_run_id!==entry.run_id||obj.provenance?.status!=='validated')throw Error('Не совпадает происхождение расчёта');
+        const name='GitHub FEMM #'+entry.run_id+' · '+(obj.job.electrical.mode==='bonded'?'соединённые оболочки':'изолированные оболочки');
+        records.push(makeRecord(id,name,obj.job,normalized.parts,normalized.field,'GitHub Actions'));
+        loaded++;
+      }catch(err){console.warn('Failed to load FEMM run',entry.run_id,err);errors++;}
+    }
+    refreshSelects();workflowUpdated();
+    if(activePage==='results')renderResults();
+    if(activePage==='compare')renderCompare();
+    status.textContent=loaded?('Загружено расчётов FEMM из GitHub Actions: '+loaded+'. Открой «Результаты» или «Сравнение».'+(errors?' Ошибок загрузки: '+errors+'.':'')):(errors?'Не удалось загрузить '+errors+' опубликованных расчётов.':'Новых опубликованных расчётов нет.');
+  }catch(err){status.textContent='Результаты GitHub Actions недоступны: '+err.message+'. Архивные примеры остаются доступны.';}
+}
+
+loadPublished();
 })();
 </script></body></html>
