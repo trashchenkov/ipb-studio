@@ -1,0 +1,79 @@
+name: Publish validated FEMM results
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-results.yml'
+  workflow_run:
+    workflows: ["Calculate IPB using FEMM (Windows)"]
+    types: [completed]
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: ipb-publish-results
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    env:
+      RUN_ID: ${{ github.event.workflow_run.id || 45601266752 }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Download previous FEMM calculation
+        run: |
+          set -euo pipefail
+          mkdir -p _download
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --dir _download
+          find _download -maxdepth 3 -type f -print
+          find _download -name job.json -print -quit | grep -q .
+      - name: Revalidate and normalize
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib, os, subprocess, json
+          root=pathlib.Path('_download')
+          folders=[p.parent for p in root.rglob('job.json') if (p.parent/'ipb_result.json').is_file()]
+          assert len(folders)==1, f'Expected one result folder, got {folders}'
+          source=folders[0]
+          subprocess.run(['python','femm/process.py','--dir',str(source)],check=True)
+          record=json.loads((source/'ipb_result.json').read_text())
+          record['provenance']={'workflow_run_id':int(os.environ['RUN_ID']),'source':'GitHub Actions Windows FEMM 4.2','status':'validated'}
+          dest=pathlib.Path('results')
+          dest.mkdir(exist_ok=True)
+          text=json.dumps(record,ensure_ascii=False,separators=(',',':'))+'\n'
+          (dest/f"run-{os.environ['RUN_ID']}.json").write_text(text,encoding='utf-8')
+          (dest/'latest.json').write_text(text,encoding='utf-8')
+          index=dest/'index.json'
+          manifest=json.loads(index.read_text(encoding='utf-8')) if index.exists() else {'schema':'ipb-results-index-v1','runs':[]}
+          manifest['runs']=[x for x in manifest['runs'] if int(x['run_id'])!=int(os.environ['RUN_ID'])]
+          manifest['runs'].insert(0,{'run_id':int(os.environ['RUN_ID']),
+            'path':f"results/run-{os.environ['RUN_ID']}.json",
+            'mode':record['job']['electrical']['mode'],
+            'mesh_mm':record['job']['solver']['mesh_mm']})
+          index.write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print('Published run',os.environ['RUN_ID'])
+          PY
+      - name: Commit JSON results
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/
+          if git diff --cached --quiet; then
+            echo "No new results"
+          else
+            git commit -m "Publish FEMM result from run $RUN_ID"
+            git push origin HEAD:main
+          fi
