@@ -20,10 +20,11 @@ regions=[]
 for row in raw:
     typ=row['region'];ph='ABC'[int(row['phase'])-1]
     out={'region':typ,'phase':ph}
-    for name in ('I_re_peak_A','I_im_peak_A','P_W_per_m','area_mm2'):
-        out[name]=float(row[name])
+    for name in ('I_re_peak_A','I_im_peak_A','P_W_per_m','area_m2'):
+        out[name]=float(row[name] if name in row else row['area_mm2'])
         assert math.isfinite(out[name]),name
-    assert out['P_W_per_m']>=0 and out['area_mm2']>0
+    assert out['P_W_per_m']>=0 and out['area_m2']>0
+    out['area_mm2']=out.pop('area_m2')*1000000  # Convert FEMM mo_blockintegral(5) m² to mm²
     regions.append(out)
 assert {(r['region'],r['phase']) for r in regions}=={(a,b) for a in ('main','shell') for b in 'ABC'}
 expected=job['electrical']['phase_current_rms_A']
