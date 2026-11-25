@@ -1,0 +1,132 @@
+name: Calculate IPB using FEMM (Windows)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Example mode (ignored when job_json is supplied)"
+        required: true
+        type: choice
+        options: [bonded, isolated]
+        default: bonded
+      mesh_mm:
+        description: "Example mesh in metal, millimetres (ignored when job_json supplied)"
+        required: true
+        type: choice
+        options: ["4", "2", "1"]
+        default: "4"
+      job_json:
+        description: "Optional complete ipb-femm-job-v1 JSON exported from IPB Studio"
+        required: false
+        type: string
+        default: ""
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/femm.yml'
+      - 'femm/**'
+
+permissions:
+  contents: read
+
+jobs:
+  femm:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      IPB_JOB_JSON: ${{ inputs.job_json }}
+      IPB_MODE: ${{ inputs.mode }}
+      IPB_MESH: ${{ inputs.mesh_mm }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare calculation job
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path "out" | Out-Null
+          @'
+          import json,os,pathlib
+          p=pathlib.Path("femm/example_job.json")
+          j=json.loads(p.read_text(encoding="utf-8"))
+          supplied=os.environ.get("IPB_JOB_JSON","").strip()
+          if supplied:
+              j=json.loads(supplied)
+          else:
+              j["electrical"]["mode"]=os.environ.get("IPB_MODE") or "bonded"
+              j["solver"]["mesh_mm"]=float(os.environ.get("IPB_MESH") or 4)
+          assert j["schema"]=="ipb-femm-job-v1"
+          pathlib.Path("out/job.json").write_text(json.dumps(j,ensure_ascii=False,indent=2),encoding="utf-8")
+          print("Mode",j["electrical"]["mode"],"mesh",j["solver"]["mesh_mm"])
+          '@ | Set-Content -Encoding UTF8 -Path prepare_job.py
+          python prepare_job.py
+          python femm/generate.py --job out/job.json --outdir out
+
+      - name: Install official FEMM 4.2
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $url = "https://www.femm.info/doku/lib/exe/fetch.php?media=upload:files:femm42bin_x64_21apr2019.exe"
+          $installer = Join-Path $env:RUNNER_TEMP "femm42_setup.exe"
+          Invoke-WebRequest -Uri $url -OutFile $installer -MaximumRedirection 10
+          $expected = "17384E8990B6305EC8FFEF1F75B6EF091A266B6E49B30C151CD1DACA2E952043"
+          $actual = (Get-FileHash -Path $installer -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { throw "FEMM installer SHA256 mismatch: $actual" }
+          $proc = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "FEMM installer exit $($proc.ExitCode)" }
+          $femm = @(
+            "C:\femm42\bin\femm.exe",
+            "C:\Program Files\femm42\bin\femm.exe",
+            "C:\Program Files (x86)\femm42\bin\femm.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $femm) { throw "FEMM installed but femm.exe not found" }
+          "FEMM_EXE=$femm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Using FEMM: $femm"
+
+      - name: Run FEMM with a timeout
+        shell: pwsh
+        working-directory: out
+        timeout-minutes: 25
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mode=(Get-Content job.json -Raw | ConvertFrom-Json).electrical.mode
+          $lua="case_$mode.lua"
+          if (-not (Test-Path $lua)) { throw "Missing Lua script $lua" }
+          $p=Start-Process -FilePath $env:FEMM_EXE -ArgumentList "-lua-script=$lua","-windowhide" -WorkingDirectory (Get-Location).Path -PassThru
+          $deadline=(Get-Date).AddMinutes(20)
+          while (-not $p.HasExited -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 5
+            $p.Refresh()
+          }
+          if (-not $p.HasExited) {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            throw "FEMM timed out"
+          }
+          if ($p.ExitCode -ne 0) { throw "FEMM exited with code $($p.ExitCode)" }
+          foreach ($file in @("results_$mode.csv","field_$mode.csv")) {
+            if (!(Test-Path $file)) { throw "FEMM did not produce $file" }
+          }
+
+      - name: Validate and package results
+        shell: pwsh
+        run: |
+          python femm/process.py --dir out
+          python -m json.tool out/ipb_result.json | Out-Null
+          Write-Host "FEMM output passed structural and current checks"
+
+      - name: Upload results for IPB Studio
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ipb-femm-result-${{ github.run_number }}
+          path: |
+            out/job.json
+            out/case_*.lua
+            out/case_*.fem
+            out/results_*.csv
+            out/field_*.csv
+            out/ipb_result.json
+            out/RESULTS.md
+          if-no-files-found: warn
+          retention-days: 14
