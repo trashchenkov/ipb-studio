@@ -326,7 +326,7 @@ function renderTrackedRun(runs,published,apiError=''){
   if(isPublished){
     const record=records.find(r=>r.id==='github-'+run.id);
     status.textContent=record?'Расчёт успешно завершён, опубликован и загружен в IPB Studio. Откройте «Результаты».':'Расчёт опубликован, но ещё не загружен в приложение. Повторите проверку или посмотрите сообщение загрузки ниже.';
-  }else status.textContent='FEMM завершён успешно. Ожидается публикация и обновление GitHub Pages. Попробуйте проверить ещё раз позже.';
+  }else {status.textContent='FEMM завершён успешно, но результат ещё не появился на сайте. Публикация может выполняться или завершиться ошибкой; проверьте журналы публикации и повторите проверку позже.';link.append(document.createTextNode(' · '));addLink('https://github.com/trashchenkov/ipb-studio/actions/workflows/publish-results.yml','Публикация результатов');}
 }
 async function checkRunAndResults(){
   const b=$('refreshGitHubResults');b.disabled=true;
@@ -377,7 +377,7 @@ async function loadPublished(){
     refreshSelects();workflowUpdated();
     if(activePage==='results')renderResults();
     if(activePage==='compare')renderCompare();
-    status.textContent=loaded?('Загружено расчётов FEMM из GitHub Actions: '+loaded+'. Открой «Результаты» или «Сравнение».'+(errors?' Ошибок загрузки: '+errors+'.':'')):(errors?'Не удалось загрузить '+errors+' опубликованных расчётов.':'Новых опубликованных расчётов нет.');
+    status.textContent=loaded?('Загружено расчётов FEMM из GitHub Actions: '+loaded+'. Открой «Результаты» или «Сравнение».'+(errors?' Ошибок загрузки: '+errors+'.':'')):(errors?'Не удалось загрузить '+errors+' опубликованных расчётов.':'Список опубликованных результатов проверен: новых записей пока нет. Это не означает, что FEMM завершился.');
   }catch(err){status.textContent='Результаты GitHub Actions недоступны: '+err.message+'. Архивные примеры остаются доступны.';}
 }
 
