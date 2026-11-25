@@ -28,10 +28,19 @@ for row in raw:
     regions.append(out)
 assert {(r['region'],r['phase']) for r in regions}=={(a,b) for a in ('main','shell') for b in 'ABC'}
 expected=job['electrical']['phase_current_rms_A']
+fault_phasors=job['electrical'].get('fault_phasors_rms_A')
+if fault_phasors:
+    assert len(fault_phasors)==3 and job.get('fault_case',{}).get('type')=='harmonic_section'
+    expected_by_phase=[complex(float(v['re']),float(v['im'])) for v in fault_phasors]
+else:
+    expected_by_phase=[expected*complex(math.cos(math.radians(a)),math.sin(math.radians(a))) for a in (0,-120,120)]
 for r in regions:
     if r['region']=='main':
-        observed=math.hypot(r['I_re_peak_A'],r['I_im_peak_A'])/math.sqrt(2)
-        assert abs(observed-expected)/expected<0.01, f'Phase {r["phase"]} current mismatch'
+        ph='ABC'.index(r['phase'])
+        observed=complex(r['I_re_peak_A'],r['I_im_peak_A'])/math.sqrt(2)
+        target=expected_by_phase[ph]
+        assert abs(observed-target)<=max(10,abs(target)*.01), f'Phase {r["phase"]} current phasor mismatch'
+expected=max(abs(v) for v in expected_by_phase)
 # Sanity check for total shell current in ideal bonded/isolated modes
 shells=[r for r in regions if r['region']=='shell']
 if mode=='bonded':
@@ -40,6 +49,23 @@ if mode=='bonded':
 else:
     for r in shells:
         assert math.hypot(r['I_re_peak_A'],r['I_im_peak_A'])<expected*.02
+# FEMM force units N/m for 1 metre planar depth.
+forces_file=base/f'forces_{mode}.csv'
+forces=[]
+if forces_file.exists():
+    with forces_file.open(newline='',encoding='utf-8-sig') as f:
+        ff=list(csv.DictReader(f))
+    assert len(ff)==6, 'Expected force rows for six regions'
+    for row in ff:
+        item={'region':row['region'],'phase':'ABC'[int(row['phase'])-1]}
+        assert item['region'] in ('main','shell')
+        for col in ('Fx_dc_N_per_m','Fy_dc_N_per_m','Fx_2f_re_N_per_m','Fx_2f_im_N_per_m','Fy_2f_re_N_per_m','Fy_2f_im_N_per_m'):
+            item[col]=float(row[col])
+            assert math.isfinite(item[col]),'Invalid force: '+col
+        forces.append(item)
+    assert {(x['region'],x['phase']) for x in forces}=={(a,b) for a in ('main','shell') for b in 'ABC'}
+elif fault_phasors:
+    raise AssertionError('Fault phasor case requires FEMM forces output')
 with field_file.open(newline='',encoding='utf-8-sig') as f:
     rows=list(csv.DictReader(f))
 xs=sorted({float(r['x_mm']) for r in rows})
@@ -58,6 +84,11 @@ field={'schema':'ipb-field-grid-v1','nx':len(xs),'ny':len(ys),'unit':'T',
        'metadata':{'quantity':'RMS vector magnitude of magnetic induction','source':'FEMM 4.2 Windows GitHub Actions'}}
 result={'schema':'ipb-femm-result-v2','job':job,
         'result':{'mode':mode,'regions':regions},'field':field}
+if forces:
+    result['result']['forces']=forces
+    result['result']['force_method']='FEMM planar conductor/shell Lorentz block integral; DC and complex 2f, N/m'
+if fault_phasors:
+    result['result']['interpretation']='Harmonic section response; not short-circuit transient, peak force or thermal withstand'
 output=base/'ipb_result.json'
 output.write_text(json.dumps(result,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
 total=sum(r['P_W_per_m'] for r in regions)
