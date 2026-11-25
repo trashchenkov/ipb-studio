@@ -7,6 +7,8 @@ on:
       - 'index.html'
       - 'fault.js'
       - 'circuit.js'
+      - 'thermal.js'
+      - 'thermal_ui.js'
       - '.github/workflows/pages.yml'
   workflow_run:
     workflows: ["Publish validated FEMM results"]
@@ -42,6 +44,8 @@ jobs:
           cp index.html _site/index.html
           cp fault.js _site/fault.js
           cp circuit.js _site/circuit.js
+          cp thermal.js _site/thermal.js
+          cp thermal_ui.js _site/thermal_ui.js
           if [ -d results ]; then cp -r results _site/results; fi
           touch _site/.nojekyll
       - name: Upload website
