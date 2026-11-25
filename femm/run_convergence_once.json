@@ -1,0 +1,14 @@
+{
+  "case": "AB_20kA_AC",
+  "mesh_mm": [
+    4,
+    2,
+    1
+  ],
+  "shell_connectivity": [
+    "bonded",
+    "isolated"
+  ],
+  "purpose": "WST vs Lorentz force convergence",
+  "single_run": true
+}
