@@ -48,7 +48,7 @@
 <div class="twoCol"><label class="field">Температура проводника, °C<input id="tCond" type="number" value="105"></label><label class="field">Температура оболочки, °C<input id="tShell" type="number" value="95"></label></div>
 <div class="twoCol"><label class="field">Сетка металла, мм<input id="meshMM" type="number" min="0.1" max="20" step="0.1" value="1"></label><label class="field">Радиус внешней границы, мм<input id="boundMM" type="number" min="4000" step="1000" value="12000"></label></div>
 </div><div><div class="card"><h3>Проверка постановки</h3><div id="jobCheck" class="note"></div><p class="insight">На этом сайте формируется задание. Сам FEMM запускается в GitHub Actions после вашего подтверждения в GitHub.</p><div class="controls"><button class="primary" id="exportJob">Скачать задание JSON</button><button id="exportLua">Скачать Lua</button></div><p class="note">Ток в Lua задаётся амплитудой √2 × RMS. Изменение геометрии создаёт новый расчёт, а не перезаписывает старый.</p></div><div class="card"><h3>Добавить полученный результат</h3><label class="field">Результат JSON (после выполнения FEMM)<input type="file" id="importResult" accept=".json,application/json"></label><div id="importStatus" class="statusline">Ни один пользовательский результат ещё не загружен.</div><div id="publishedStatus" class="statusline" aria-live="polite">Загружаются расчёты FEMM из GitHub Actions…</div><p class="note">После успешного расчёта результаты загружаются автоматически; ручной импорт JSON нужен только для локальных расчётов или восстановления архива. Каждый результат содержит исходное задание и связан с его параметрами.</p></div></div></div></div>
-<div class="page" id="resultsPage"><div class="row space"><div><h2>Результаты</h2><p class="muted">Выбери сохранённый расчёт. Поле и потери будут показаны только для него.</p></div><button id="toCompare">Сравнить с другим</button></div><div class="card"><label class="field">Расчёт<select id="resultSelect"></select></label><div id="resultInfo" class="note"></div></div>
+<div class="page" id="resultsPage"><div class="row space"><div><h2>Результаты</h2><p class="muted">Выбери сохранённый расчёт. Поле и потери будут показаны только для него.</p></div><button id="toCompare">Сравнить с другим</button></div><div class="card"><h3>Выбрать расчёт</h3><p class="note">Сначала показаны расчёты, соответствующие текущему заданию: геометрии, схеме оболочек, токам, материалам и настройкам FEMM. Остальные доступны ниже. Названия сохраняются только в этом браузере.</p><div id="resultCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(265px,1fr));gap:10px;margin:12px 0"></div><div class="controls"><button id="restoreSelectedJob">Восстановить конструкцию из расчёта</button></div><details style="margin-top:10px"><summary style="cursor:pointer;color:#abc9dc">Технический список расчётов</summary><label class="field">Расчёт<select id="resultSelect"></select></label></details><div id="resultInfo" class="note" style="margin-top:12px"></div></div>
 <div class="grid3" id="resultMetrics"></div><div class="card"><h3>Карта магнитной индукции |B|, мТ</h3><div id="singleMapHolder"><canvas class="singlemap" id="resultMap" width="900" height="450"></canvas></div><p id="singleMapNote" class="note"></p><div class="legendbar"></div><div class="legendticks" id="resultTicks"></div></div><div class="card"><h3>Токи и потери по фазам</h3><div id="resultTable"></div></div></div>
 <div class="page" id="comparePage"><h2>Сравнение расчётов</h2><p class="muted">Выбери два расчёта, затем сравни их по одной цветовой шкале и в одной контрольной точке.</p>
 <div class="card"><div class="twoCol"><label class="field">Вариант 1<select id="compareA"></select></label><label class="field">Вариант 2<select id="compareB"></select></label></div><div class="controls"><label class="field">Верхняя граница шкалы, мТ<input id="colorMax" type="range" min="0.25" max="18" step="0.25" value="3"></label><label class="field"><input id="showContours" type="checkbox" checked> Показывать контуры</label><button id="probeReset">Сбросить точку</button></div><div id="compareNote" class="note"></div></div>
@@ -219,7 +219,49 @@ function regionsTable(rec){let sum=0;const phases=['A','B','C'].map(p=>{
  return `<tr><td>${p}</td><td>${fmt(+a.P_W_per_m,2)}</td><td>${fmt(+b.P_W_per_m,2)}</td><td>${irms}</td></tr>`;}).join('');
  return `<table class="table"><thead><tr><th>Фаза</th><th>Проводник, Вт/м</th><th>Оболочка, Вт/м</th><th>Ток оболочки RMS</th></tr></thead><tbody>${phases}<tr><th>Итого</th><th colspan="3">${fmt(sum,2)} Вт/м</th></tr></tbody></table>`;}
 function sumRegion(rec,region){return rec.regions.filter(r=>r.region===region).reduce((a,b)=>a+Number(b.P_W_per_m),0);}
-function recordLabel(r){return `${r.label} [${r.source}]`}
+const LABEL_KEY='ipb_studio_record_names_v1';
+let savedRecordNames={};
+try{const names=JSON.parse(localStorage.getItem(LABEL_KEY)||'{}');if(names && typeof names==='object' && !Array.isArray(names))savedRecordNames=names;}catch(e){}
+function displayRecordName(r){return typeof savedRecordNames[r.id]==='string'&&savedRecordNames[r.id].trim()?savedRecordNames[r.id].trim():r.label;}
+function recordLabel(r){const g=r.job.geometry;return displayRecordName(r)+' · Ø'+fmt(g.shell_outer_diameter_mm,1)+' мм · '+r.job.electrical.mode+' · '+fmt(r.job.solver.mesh_mm,1)+' мм ['+r.source+']';}
+function restoreJob(j){
+ for(let k=0;k<DIM_IDS.length;k++)$(DIM_IDS[k]).value=j.geometry[GKEYS[k]];
+ for(const [id,val] of [['runShellMode',j.electrical.mode],['freq',j.electrical.frequency_hz],['currentA',j.electrical.phase_current_rms_A],['rho',j.materials.rho20_ohm_m],['alphaT',j.materials.alpha_per_K],['tCond',j.materials.conductor_C],['tShell',j.materials.shell_C],['meshMM',j.solver.mesh_mm],['boundMM',j.solver.outer_radius_mm]])$(id).value=val;
+ renderParametric();workflowUpdated();
+}
+function renderResultCards(){
+ const holder=$('resultCards');if(!holder)return;
+ holder.replaceChildren();
+ const sorted=records.slice().sort((a,b)=>{
+   const ma=cfgKey(a.job)===cfgKey(job()),mb=cfgKey(b.job)===cfgKey(job());
+   return Number(mb)-Number(ma)||((b.created_at||'').localeCompare(a.created_at||''))||a.id.localeCompare(b.id);
+ });
+ for(const r of sorted){
+   const match=cfgKey(r.job)===cfgKey(job()),selected=r.id===selectedId,g=r.job.geometry,e=r.job.electrical;
+   const card=document.createElement('div');
+   card.style.cssText='border:1px solid '+(selected?'#65bfc4':'#3f5970')+';border-radius:10px;padding:13px;background:'+(selected?'#1b4554':'#172d40')+';display:flex;flex-direction:column;gap:8px';
+   const head=document.createElement('div');head.style.cssText='font-weight:700;line-height:1.35';head.textContent=displayRecordName(r);card.append(head);
+   const tag=document.createElement('div');tag.style.cssText='font-size:11px;color:'+(match?'#a9f0d3':'#b8c8d4');tag.textContent=(match?'✓ Совпадает с текущим заданием':'Другие исходные данные')+' · '+r.source;card.append(tag);
+   const desc=document.createElement('div');desc.style.cssText='font-size:12px;line-height:1.55;color:#d2e3ef';
+   desc.textContent='Ø проводника / оболочки: '+fmt(g.conductor_outer_diameter_mm,1)+' / '+fmt(g.shell_outer_diameter_mm,1)+' мм; шаг фаз '+fmt(g.phase_pitch_mm,1)+' мм. '+(e.mode==='bonded'?'Оболочки соединены':'Оболочки изолированы')+'. '+fmt(e.phase_current_rms_A/1000,2)+' кА, '+fmt(e.frequency_hz,0)+' Гц. Сетка '+fmt(r.job.solver.mesh_mm,2)+' мм; потери '+fmt(sumRegion(r,'main')+sumRegion(r,'shell'),1)+' Вт/м.';
+   card.append(desc);
+   const actions=document.createElement('div');actions.className='controls';
+   const choose=document.createElement('button');choose.textContent=selected?'Выбран':'Просмотреть';choose.disabled=selected;
+   choose.onclick=()=>{selectedId=r.id;renderResults();};
+   const rename=document.createElement('button');rename.textContent='Переименовать';
+   rename.onclick=()=>{
+     const proposed=prompt('Название расчёта (сохраняется в этом браузере):',displayRecordName(r));
+     if(proposed===null)return;
+     const name=proposed.trim();if(name.length>120){alert('Название не должно превышать 120 символов');return;}
+     if(name)savedRecordNames[r.id]=name;else delete savedRecordNames[r.id];
+     try{localStorage.setItem(LABEL_KEY,JSON.stringify(savedRecordNames));}catch(e){alert('Название изменено, но браузер не разрешил сохранить его локально.');}
+     renderResults();
+   };
+   actions.append(choose,rename);card.append(actions);
+   holder.append(card);
+ }
+}
+
 function refreshSelects(){const defs=[['resultSelect',selectedId],['compareA',$('compareA').value||'builtin-bonded'],['compareB',$('compareB').value||'builtin-isolated']];for(const [id,wanted] of defs){const select=$(id);select.innerHTML='';for(const r of records){const o=new Option(recordLabel(r),r.id);select.append(o)}select.value=records.some(r=>r.id===wanted)?wanted:records[0]?.id||'';}}
 // These are field magnitudes supplied as T on a regular 121x61 grid.
 function sample(data,x,y){if(!data)return NaN;let [x0,y0,x1,y1]=data.bounds_m,tx=(x-x0)/(x1-x0)*(data.nx-1),ty=(y-y0)/(y1-y0)*(data.ny-1);if(tx<0||ty<0||tx>data.nx-1||ty>data.ny-1)return NaN;let i=Math.min(data.nx-2,Math.floor(tx)),k=Math.min(data.ny-2,Math.floor(ty)),a=tx-i,b=ty-k,at=(ii,jj)=>Number(data.values[jj*data.nx+ii]);return (1-b)*((1-a)*at(i,k)+a*at(i+1,k))+b*((1-a)*at(i,k+1)+a*at(i+1,k+1));}
@@ -232,7 +274,7 @@ function drawMap(canvas,rec,marks=true){const ctx=canvas.getContext('2d'),W=canv
  if(marks){const g=rec.job.geometry,radShell=g.shell_outer_diameter_mm/2000,radCond=g.conductor_outer_diameter_mm/2000,p=g.phase_pitch_mm/1000;for(let i=0;i<3;i++){const x=(i-1)*p;for(const [r,stroke] of [[radShell,'#daeaf4'],[radCond,'#ffe0b1']]){ctx.beginPath();ctx.ellipse(px(x),py(0),r*W/FIELD_VIEW.w,r*H/FIELD_VIEW.h,0,0,2*Math.PI);ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke()}ctx.fillStyle='#fff';ctx.font='bold 16px system-ui';ctx.textAlign='center';ctx.fillText('ABC'[i],px(x),py(-radShell-.22));}}
  ctx.strokeStyle='#fff';ctx.lineWidth=2;let X=px(probe.x),Y=py(probe.y);ctx.beginPath();ctx.moveTo(X-10,Y);ctx.lineTo(X+10,Y);ctx.moveTo(X,Y-10);ctx.lineTo(X,Y+10);ctx.stroke();ctx.textAlign='left';ctx.font='bold 14px system-ui';let b=sample(d,probe.x,probe.y);if(Number.isFinite(b)){ctx.fillStyle='#fff';ctx.fillText(fmt(b*1000,3)+' мТ',Math.max(8,Math.min(W-120,X+14)),Math.max(18,Y-14));}}
 function tickHTML(){return [0,.25,.5,.75,1].map(k=>`<span>${fmt(k*currentScale,2)}${k===1?' мТ':''}</span>`).join('');}
-function renderResults(){refreshSelects();const rec=records.find(r=>r.id===$('resultSelect').value)||records[0];if(!rec)return;selectedId=rec.id;$('resultInfo').innerHTML=`Источник: <strong>${rec.source}</strong> · режим: <strong>${rec.job.electrical.mode}</strong> · ${fmt(rec.job.electrical.frequency_hz,0)} Гц · ${fmt(rec.job.electrical.phase_current_rms_A,0)} A RMS<br>Диаметры: ${fmt(rec.job.geometry.conductor_outer_diameter_mm,1)} / ${fmt(rec.job.geometry.shell_outer_diameter_mm,1)} мм; шаг фаз ${fmt(rec.job.geometry.phase_pitch_mm,1)} мм. <br><strong>${cfgKey(rec.job)===cfgKey(job())?'Соответствует текущему заданию':'Архивный расчёт — не соответствует текущему заданию'}</strong>`;
+function renderResults(){refreshSelects();const rec=records.find(r=>r.id===selectedId)||records[0];if(!rec)return;selectedId=rec.id;renderResultCards();$('resultInfo').innerHTML=`Источник: <strong>${rec.source}</strong> · режим: <strong>${rec.job.electrical.mode}</strong> · ${fmt(rec.job.electrical.frequency_hz,0)} Гц · ${fmt(rec.job.electrical.phase_current_rms_A,0)} A RMS<br>Диаметры: ${fmt(rec.job.geometry.conductor_outer_diameter_mm,1)} / ${fmt(rec.job.geometry.shell_outer_diameter_mm,1)} мм; шаг фаз ${fmt(rec.job.geometry.phase_pitch_mm,1)} мм. <br><strong>${cfgKey(rec.job)===cfgKey(job())?'Соответствует текущему заданию':'Архивный расчёт — не соответствует текущему заданию'}</strong>`;
  $('resultMetrics').innerHTML=[['Потери в проводниках',sumRegion(rec,'main')],['Потери в оболочках',sumRegion(rec,'shell')],['Всего',sumRegion(rec,'main')+sumRegion(rec,'shell')]].map(([k,v])=>`<div class="metric"><small>${k}</small><strong>${fmt(v,1)} Вт/м</strong></div>`).join('');
  drawMap($('resultMap'),rec,true);$('resultTicks').innerHTML=tickHTML();$('singleMapNote').textContent=rec.field?'Численная карта FEMM. Цвет показывает модуль B в мТ; это результаты именно выбранного расчёта.':'Для выбранного расчёта доступны только интегральные результаты: поле не загружено.';$('resultTable').innerHTML=regionsTable(rec);}
 function renderCompare(){refreshSelects();const a=records.find(r=>r.id===$('compareA').value)||records[0],b=records.find(r=>r.id===$('compareB').value)||records[1];if(!a||!b)return;$('leftName').textContent=a.label;$('rightName').textContent=b.label;
@@ -296,7 +338,8 @@ $('githubRunSelect').onchange=()=>{trackedRunId=Number($('githubRunSelect').valu
 
 $('exportLua').onclick=()=>{const j=job();if(validate(j).length)return;download('case_'+j.electrical.mode+'.lua',luaFromJob(j),'text/plain');};
 $('importResult').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let x=JSON.parse(await f.text());let rec=addRecord(x,f.name.replace(/\.json$/i,''));$('importStatus').innerHTML=`<span class="success">Результат принят:</span> ${rec.label}. ${cfgKey(rec.job)===cfgKey(job())?'Совпадает с текущим заданием.':'Архивный вариант, условия отличаются от текущего задания.'}`;}catch(err){$('importStatus').innerHTML='<span class="error">Импорт отклонён: '+String(err.message).replaceAll('<','&lt;')+'</span>';}e.target.value='';};
-$('resultSelect').onchange=()=>{selectedId=$('resultSelect').value;renderResults()};$('compareA').onchange=renderCompare;$('compareB').onchange=renderCompare;
+$('resultSelect').onchange=()=>{selectedId=$('resultSelect').value;renderResults()};
+$('restoreSelectedJob').onclick=()=>{const rec=records.find(r=>r.id===selectedId);if(!rec)return;restoreJob(rec.job);show('design');$('designRunInfo').textContent+=' Восстановлены исходные параметры расчёта «'+displayRecordName(rec)+'».';};$('compareA').onchange=renderCompare;$('compareB').onchange=renderCompare;
 $('colorMax').oninput=()=>{currentScale=+$('colorMax').value;renderCompare();renderResults()};$('showContours').onchange=renderCompare;
 $('probeReset').onclick=()=>{probe={x:0,y:1.1};renderCompare()};
 for(const id of ['mapLeft','mapRight'])$(id).addEventListener('click',e=>{const b=e.currentTarget.getBoundingClientRect();probe.x=FIELD_VIEW.x+(e.clientX-b.left)/b.width*FIELD_VIEW.w;probe.y=FIELD_VIEW.y+(1-(e.clientY-b.top)/b.height)*FIELD_VIEW.h;renderCompare();});
