@@ -121,10 +121,10 @@ function scenarios(){
   form='<label class="field">Схема испытания<select id="scTestType"><option value="ABC">Трёхфазное испытание ABC</option><option value="AB">Две соседние фазы AB</option><option value="BC">Две соседние фазы BC</option></select></label>'+
        '<label class="field">Ток в повреждённых фазах, кА RMS<input id="scTestCurrent" type="number" min="1" max="500" step="1" value="122"></label>';
  }else{
-  explain=which==='tap'?'Пример 13.3: для повреждения на ответвлении UAT к месту КЗ подходят оба источника. В книге: 61 кА от генератора и 40 кА от сети через GT; рейтинг ответвления 101 кА и условный пиковый ток стойкости 252,5 кА по множителю 2,5. Геометрия ответвления неизвестна: силы и нагрев для него здесь не вычисляются. На главном токопроводе по разные стороны ответвления НЕ протекает сумма 101 кА.':'§13.4.1(5): при повреждении на главном токопроводе G—GT к месту КЗ подходят токи от двух сторон, но по разным его отрезкам. Место повреждения по длине здесь схематическое: электрические параметры источников и токи задаются отдельно; их зависимость от расстояния ещё не рассчитывается.';
+  explain=which==='tap'?'Пример 13.3: для повреждения на ответвлении UAT к месту КЗ подходят оба источника. В книге: 61 кА от генератора и 40 кА от сети через GT; рейтинг ответвления 101 кА и условный пиковый ток стойкости 252,5 кА по множителю 2,5. Геометрия ответвления неизвестна: силы и нагрев для него здесь не вычисляются. На главном токопроводе по разные стороны ответвления НЕ протекает сумма 101 кА.':'§13.4.1(5): при повреждении на главном токопроводе G—GT к месту КЗ подходят токи от двух сторон, но по разным его отрезкам. В режиме исходных токов их величины заданы независимо от координаты; при выборе R+jX положение КЗ изменяет длины двух путей и рассчитанные токи.';
   form='<label class="field">Вклад генератора в повреждение, кА RMS<input id="scIG" type="number" min="1" max="500" step="1" value="61"></label>'+
        '<label class="field">Вклад сети через GT, кА RMS<input id="scIT" type="number" min="1" max="500" step="1" value="40"></label>';
-  if(which==='main')form+='<label class="field">Место КЗ от генератора, % длины<input id="scPosition" type="range" min="5" max="95" step="5" value="50"></label><div class="note" id="scPositionLabel">50% длины; токи в сечениях задаются независимо от координаты</div>';
+  if(which==='main')form+='<label class="field">Место КЗ от генератора, % длины<input id="scPosition" type="range" min="5" max="95" step="5" value="50"></label><div class="note" id="scPositionLabel">50% длины. Для режима R+jX положение определяет импедансы путей.</div>';
  }
  $('scExplain').textContent=explain;
  $('scCaseFields').innerHTML=form;
@@ -227,7 +227,7 @@ function run(){
   const largestI=(which==='tap' ? tapCurrentA/1000 : Math.max(...segments.map(s=>s.I))/1000);
   const mode=$('scScenario').value;
   $('scStatus').textContent=(mode==='test'?'Испытание участка':'Повреждение в схеме G—GT')+'. Рассчитано сечений: '+segments.length+'. Временная зависимость тока условная, не воспроизведение динамики генератора. Для рисунка ниже выбран первый участок.';
-  $('scMetrics').innerHTML=[['Максимальный заданный ток сечения',fmt(largestI,1)+' кА RMS'],['Макс. погонная сила',fmt(biggest/1000,2)+' кН/м'],['Макс. оценочный нагрев',fmt(maxRise,3)+' К']].map(([a,b])=>'<div class="metric"><small>'+a+'</small><strong>'+b+'</strong></div>').join('');
+  $('scMetrics').innerHTML=[[which==='tap'?'Ток в ответвлении UAT':'Максимальный действующий ток участка',fmt(largestI,3)+' кА RMS'],['Макс. погонная сила',fmt(biggest/1000,2)+' кН/м'],['Макс. оценочный нагрев',fmt(maxRise,3)+' К']].map(([a,b])=>'<div class="metric"><small>'+a+'</small><strong>'+b+'</strong></div>').join('');
   let body='<table class="table"><thead><tr><th>Сечение</th><th>Ток, кА RMS</th><th>max |Fx|, кН/м</th><th>max ΔT, K</th><th>∫i²dt фазы A, МА²·с</th></tr></thead><tbody>';
   for(const s of segments)body+='<tr><td>'+s.label+'</td><td>'+fmt(s.I/1000,1)+'</td><td>'+fmt(Math.max(...s.fmax)/1000,2)+'</td><td>'+fmt(Math.max(...s.temps.map(t=>t-s.T0)),3)+'</td><td>'+fmt(s.i2dt[0]/1e12,6)+'</td></tr>';
   if(which==='tap')body+='<tr><td>Ответвление UAT (геометрия не задана)</td><td>'+fmt(largestI,3)+'</td><td>Не рассчитывается</td><td>Не рассчитывается</td><td>Не рассчитывается</td></tr>';
