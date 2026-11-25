@@ -30,6 +30,11 @@ function recompute(){
  try{
    const rec=window.IPBActiveResult;
    if(!rec){stat.textContent='Сначала выберите расчёт на вкладке «Результаты».';return;}
+   if(rec.job?.fault_case?.type==='harmonic_section'){
+     stat.textContent='Выбран аварийный гармонический расчёт. Стационарная двухузловая модель здесь отключена: она не определяет температуру за кратковременное КЗ. Для оценки нагрева при заданном токе и длительности используйте раздел КЗ; для стационарного нагрева выберите расчёт номинального режима.';
+     out.replaceChildren();
+     return;
+   }
    if(!window.IPBThermal)throw Error('Не загрузился thermal.js; обновите страницу');
    const g=rec.job.geometry;
    const common={
