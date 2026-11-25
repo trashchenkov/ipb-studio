@@ -2,6 +2,12 @@
   "schema": "ipb-results-index-v1",
   "runs": [
     {
+      "run_id": 45602907854,
+      "path": "results/run-45602907854.json",
+      "mode": "bonded",
+      "mesh_mm": 4.0
+    },
+    {
       "run_id": 45601266752,
       "path": "results/run-45601266752.json",
       "mode": "bonded",
