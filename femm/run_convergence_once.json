@@ -10,5 +10,7 @@
     "isolated"
   ],
   "purpose": "WST vs Lorentz force convergence",
-  "single_run": true
+  "single_run": true,
+  "repeatability_check": 2,
+  "note": "Same 6 FEMM cases; fixed Windows console output and full green CI verification"
 }
