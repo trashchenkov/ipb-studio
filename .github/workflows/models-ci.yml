@@ -6,6 +6,7 @@ on:
     paths:
       - 'circuit.js'
       - 'fault.js'
+      - 'femm/**'
       - 'tests/**'
       - '.github/workflows/models-ci.yml'
   workflow_dispatch:
@@ -28,3 +29,5 @@ jobs:
           node --check fault.js
       - name: Model regression tests
         run: node --test tests/*.test.js
+      - name: FEMM Lua generator regression tests
+        run: python -m unittest discover -s tests -p 'test_femm_fault.py' -v
