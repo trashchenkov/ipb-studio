@@ -49,6 +49,25 @@ if mode=='bonded':
 else:
     for r in shells:
         assert math.hypot(r['I_re_peak_A'],r['I_im_peak_A'])<expected*.02
+# Explicit diagnostics for parallel circuit connection; old jobs may lack file.
+circ_path=base/f'circuits_{mode}.csv'
+circuit_properties=[]
+if circ_path.exists():
+    with circ_path.open(newline='',encoding='utf-8-sig') as f:
+        circuit_properties=list(csv.DictReader(f))
+    expected_names=({'bonded_shells'} if mode=='bonded' else {f'isolated_shell_{i}' for i in range(1,4)})
+    expected_names.update({f'phase_{i}' for i in range(1,4)})
+    assert {r['circuit'] for r in circuit_properties}==expected_names,'Circuit properties missing'
+    for r in circuit_properties:
+        for key in ('I_re_peak_A','I_im_peak_A','V_re_V','V_im_V','flux_re','flux_im'):
+            r[key]=float(r[key])
+            assert math.isfinite(r[key]),'Bad FEMM circuit property: '+key
+    for r in circuit_properties:
+        if r['circuit'].startswith(('bonded_shells','isolated_shell')):
+            shell_total=math.hypot(r['I_re_peak_A'],r['I_im_peak_A'])
+            assert shell_total < max(1.0,expected)*0.02,'Unexpected nonzero imposed shell circuit current'
+elif job.get('fault_case',{}).get('type')=='harmonic_section' and job.get('require_circuit_diagnostics'):
+    raise AssertionError('Shell circuit diagnostics missing')
 # FEMM force units N/m for 1 metre planar depth.
 forces_file=base/f'forces_{mode}.csv'
 forces=[]
@@ -89,6 +108,13 @@ field={'schema':'ipb-field-grid-v1','nx':len(xs),'ny':len(ys),'unit':'T',
        'metadata':{'quantity':'RMS vector magnitude of magnetic induction','source':'FEMM 4.2 Windows GitHub Actions'}}
 result={'schema':'ipb-femm-result-v2','job':job,
         'result':{'mode':mode,'regions':regions},'field':field}
+result['result']['shell_connection_assumption']=(
+    'Ideal shared parallel zero-net-current circuit; same longitudinal voltage, perfect end bonding, no external ground return'
+    if mode=='bonded' else
+    'Three separate zero-net-current parallel circuits; no longitudinal end connection'
+)
+if circuit_properties:
+    result['result']['circuits']=circuit_properties
 if forces:
     result['result']['forces']=forces
     result['result']['force_method']='FEMM planar conductor/shell Lorentz block integral; DC and complex 2f, N/m'
