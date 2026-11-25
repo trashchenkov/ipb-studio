@@ -22,7 +22,7 @@ root.innerHTML=[
 '<div class="grid2"><div>',
 '<div id="scCaseFields"></div>',
 '<label class="field">Продолжительность воздействия, с<input id="scDuration" type="number" min="0.01" max="3" step="0.01" value="1"></label>',
-'<label class="field">Модель X/R для <em>условной</em> временной формы тока<input id="scXR" type="number" min="0.1" max="100" step="0.1" value="10"></label>',
+'<label class="field">X/R условной формы тока (при R+jX определяется из импеданса источника, это поле игнорируется)<input id="scXR" type="number" min="0.1" max="100" step="0.1" value="10"></label>',
 '<label class="field">Угол начального момента, градусы<input id="scAngle" type="number" min="-360" max="360" step="5" value="0"></label>',
 '<button id="scCalculate" class="primary" type="button">Рассчитать воздействие для выбранной схемы</button>',
 '</div><div><div id="scStatus" class="statusline" role="status" aria-live="polite"></div>',
